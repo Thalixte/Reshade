@@ -94,6 +94,10 @@ namespace reshade
 		/// Depth buffer texture format
 		/// </summary>
 		static unsigned int depth_buffer_texture_format;
+		/// <summary>
+		/// Depth buffer texture type
+		/// </summary>
+		static unsigned int depth_buffer_texture_type;
 		static unsigned int OM_iter;
 
 		/// <summary>
@@ -175,6 +179,12 @@ namespace reshade
 		void set_uniform_value(uniform &variable, const float *values, size_t count);
 
 	protected:
+		struct technique_network_status
+		{
+			technique technique;
+			bool allowed = false;
+		};
+
 
 		/// <summary>
 		/// Callback function called when the runtime is initialized.
@@ -243,6 +253,16 @@ namespace reshade
 		/// </summary>
 		/// <param name="data">The draw data to render.</param>
 		void const _init_game_list(std::unordered_map<std::string, game> &game_list);
+		/// <summary>
+		/// init network techniques
+		/// </summary>
+		/// <param name="data">The draw data to render.</param>
+		void const _init_allowed_network_techniques(std::vector<std::string> &allowed_network_techniques);
+		/// <summary>
+		/// allow depth techniques
+		/// </summary>
+		/// <param name="data">The draw data to render.</param>
+		void const _check_allow_depth_techniques(bool changed);
 
 		unsigned int _width = 0, _height = 0;
 		unsigned int _vendor_id = 0, _device_id = 0;
@@ -258,7 +278,10 @@ namespace reshade
 		std::string _host_process_name;
 		std::unordered_map<std::string, game> _game_list;
 		bool _depth_buffer_settings_changed = false;
+		bool _network_settings_changed = false;
 		bool _whitelist_enabled = false;
+		std::vector<std::string> _whitelisted_games;
+		std::vector<std::string> _allowed_network_techniques;
 
 	private:
 		void reload();
@@ -275,6 +298,7 @@ namespace reshade
 		void draw_overlay_menu_home();
 		void draw_overlay_menu_settings();
 		void draw_overlay_menu_depth_buffer_detection_settings();
+		void draw_overlay_menu_network_settings();
 		void draw_overlay_menu_statistics();
 		void draw_overlay_menu_about();
 		void draw_overlay_variable_editor();
@@ -293,7 +317,7 @@ namespace reshade
 		std::chrono::high_resolution_clock::time_point _last_present_time;
 		std::chrono::high_resolution_clock::duration _last_frame_duration;
 		std::vector<unsigned char> _uniform_data_storage;
-		int _date[4] = {};
+		int _date[4] = { };
 		std::string _errors;
 		std::vector<std::string> _preprocessor_definitions;
 		int _menu_index = 0;
@@ -302,6 +326,7 @@ namespace reshade
 		int _selected_technique = -1;
 		int _input_processing_mode = 2;
 		unsigned int _menu_key_data[3];
+		unsigned int _network_key_data[3];
 		unsigned int _screenshot_key_data[3];
 		unsigned int _effects_key_data[3];
 		filesystem::path _configuration_path;
@@ -326,7 +351,7 @@ namespace reshade
 		float _variable_editor_height = 0.0f;
 		unsigned int _tutorial_index = 0;
 		unsigned int _effects_expanded_state = 2;
-		char _effect_filter_buffer[64] = {};
+		char _effect_filter_buffer[64] = { };
 		size_t _reload_remaining_effects = 0;
 		size_t _texture_count = 0;
 		size_t _uniform_count = 0;

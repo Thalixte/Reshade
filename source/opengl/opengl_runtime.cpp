@@ -887,7 +887,10 @@ namespace reshade::opengl
 			{
 				traffic = 0;
 				_depth_source = 0;
-				create_depth_texture(0, 0, GL_NONE);
+				if (_whitelist_enabled == false)
+				{
+					create_depth_texture(0, 0, GL_NONE);
+				}
 				return;
 			}
 			else

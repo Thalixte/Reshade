@@ -28,16 +28,12 @@ namespace reshade::d3d11
 		}
 	}
 
-	void draw_call_tracker::reset(bool ball)
+	void draw_call_tracker::reset()
 	{
 		_counters.vertices = 0;
 		_counters.drawcalls = 0;
-
-		if (ball == true)
-		{
-			_counters_per_used_depthstencil.clear();
-			_active_depth_texture.reset();
-		}
+		_counters_per_used_depthstencil.clear();
+		_active_depth_texture.reset();
 	}
 
 	void draw_call_tracker::set_depth_texture(ID3D11Texture2D* depth_texture)
@@ -51,8 +47,17 @@ namespace reshade::d3d11
 	{
 		// assert(depthstencil != nullptr);
 
-		if (_counters_per_used_depthstencil.find(depthstencil) == _counters_per_used_depthstencil.end())
+		if (reshade::runtime::depth_buffer_retrieval_mode == reshade::runtime::depth_buffer_retrieval_mode::POST_PROCESS)
 		{
+			if (_counters_per_used_depthstencil.find(depthstencil) == _counters_per_used_depthstencil.end())
+			{
+				_counters_per_used_depthstencil.emplace(depthstencil, depthstencil_counter_info());
+			}
+		}
+
+		if (reshade::runtime::depth_buffer_retrieval_mode == reshade::runtime::depth_buffer_retrieval_mode::BEFORE_CLEARING_STAGE || reshade::runtime::depth_buffer_retrieval_mode == reshade::runtime::depth_buffer_retrieval_mode::AT_OM_STAGE)
+		{
+			_counters_per_used_depthstencil.clear();
 			_counters_per_used_depthstencil.emplace(depthstencil, depthstencil_counter_info());
 		}
 	}
@@ -158,7 +163,7 @@ namespace reshade::d3d11
 					continue;
 				}
 			}
-
+			
 			if (reshade::runtime::depth_buffer_retrieval_mode == reshade::runtime::depth_buffer_retrieval_mode::POST_PROCESS)
 			{
 				bool heuristic_result = (depthstencil_info.vertices * (1.2f - float(depthstencil_info.drawcalls) / drawcalls)) >= (best_info.vertices * (1.2f - float(best_info.drawcalls) / drawcalls));
@@ -184,10 +189,5 @@ namespace reshade::d3d11
 	{
 		reshade::runtime::OM_iter = 0;
 		return _active_depth_texture.get();
-	}
-
-	draw_call_tracker::depthstencil_counter_info draw_call_tracker::get_counters()
-	{
-		return _counters;
 	}
 }

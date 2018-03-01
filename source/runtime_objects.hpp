@@ -132,6 +132,7 @@ namespace reshade
 		std::unordered_map<std::string, variant> annotations;
 		bool hidden = false;
 		bool enabled = false;
+		bool network_allowed = false;
 		int32_t timeout = 0;
 		int32_t timeleft = 0;
 		uint32_t toggle_key_data[4];

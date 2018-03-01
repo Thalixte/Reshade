@@ -982,6 +982,7 @@ namespace reshade::d3d11
 	void d3d11_runtime::detect_depth_source(draw_call_tracker& tracker)
 	{
 		static int cooldown = 0, traffic = 0;
+		static bool check_network = false;
 
 		
 		if (cooldown-- > 0)
@@ -996,11 +997,11 @@ namespace reshade::d3d11
 		else
 		{
 			cooldown = 30;
+
 			if (traffic > 10)
 			{
 				traffic = 0;
-				create_depthstencil_replacement(tracker, nullptr);
-				return;
+				check_network = true;
 			}
 			else
 			{
@@ -1011,7 +1012,7 @@ namespace reshade::d3d11
 		// refresh depth buffer after detection settings has changed
 		if (_depth_buffer_settings_changed == true)
 		{
-			create_depthstencil_replacement(tracker, nullptr);
+			create_depthstencil_replacement(tracker, nullptr, check_network);
 			_depthstencil = nullptr;
 			_depth_buffer_settings_changed = false;
 			return;
@@ -1022,15 +1023,21 @@ namespace reshade::d3d11
 			return;
 		}
 
+		if (_network_settings_changed == true)
+		{
+			_depthstencil = nullptr;
+			_network_settings_changed = false;
+		}
+
 		ID3D11DepthStencilView *const best_match = tracker.get_best_depth_stencil(_host_process_name, _game_list, _drawcalls, _device.get(), _immediate_context.get(), _width, _height);
 
-		if (best_match != nullptr)
+		if (check_network == true || best_match != nullptr)
 		{
-			create_depthstencil_replacement(tracker, best_match);
+			create_depthstencil_replacement(tracker, best_match, check_network);
 		}
 	}
 
-	bool d3d11_runtime::create_depthstencil_replacement(draw_call_tracker& tracker, ID3D11DepthStencilView *depthstencil)
+	bool d3d11_runtime::create_depthstencil_replacement(draw_call_tracker& tracker, ID3D11DepthStencilView *depthstencil, bool check_network)
 	{
 		_depthstencil.reset();
 		_depthstencil_replacement.reset();
@@ -1170,9 +1177,20 @@ namespace reshade::d3d11
 
 		// Update effect textures
 		_effect_shader_resources[2] = _depthstencil_texture_srv;
-		for (const auto &technique : _techniques)
+		for (technique &technique : _techniques)
+		{
 			for (const auto &pass : technique.passes)
-				pass->as<d3d11_pass_data>()->shader_resources[2] = _depthstencil_texture_srv;
+			{
+				if (check_network == false || technique.network_allowed == true)
+				{
+					pass->as<d3d11_pass_data>()->shader_resources[2] = _depthstencil_texture_srv;
+				}
+				else
+				{
+					pass->as<d3d11_pass_data>()->shader_resources[2] = nullptr;
+				}
+			}
+		}
 
 		return true;
 	}

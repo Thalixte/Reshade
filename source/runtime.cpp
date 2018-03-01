@@ -11,6 +11,9 @@
 #include "input.hpp"
 #include "ini_file.hpp"
 #include "utility.hpp"
+#include <iostream>
+#include <sstream>
+#include <iterator>
 #include <algorithm>
 #include <unordered_set>
 #include <stb_image.h>
@@ -27,9 +30,11 @@ namespace reshade
 	filesystem::path runtime::s_reshade_dll_path, runtime::s_target_executable_path;
 	unsigned int runtime::screen_width = 0;
 	unsigned int runtime::screen_height = 0;
-	unsigned int runtime::depth_buffer_retrieval_mode = depth_buffer_retrieval_mode::BEFORE_CLEARING_STAGE; // "before depth buffer clearing" retrieval mode by default
-	unsigned int runtime::depth_buffer_clearing_number = 0; // usually, the second depth buffer clearing is the good one
+	// unsigned int depth_buffer_retrieval_mode = depth_buffer_retrieval_mode::POST_PROCESS; // post process retrieval mode by default
+	unsigned int runtime::depth_buffer_retrieval_mode = depth_buffer_retrieval_mode::POST_PROCESS; // "before depth buffer clearing" retrieval mode by default
+	unsigned int runtime::depth_buffer_clearing_number = 1; // usually, the second depth buffer clearing is the good one
 	unsigned int runtime::depth_buffer_texture_format = DXGI_FORMAT_UNKNOWN; // no depth buffer texture filtering by default
+	unsigned int runtime::depth_buffer_texture_type = depth_buffer_texture_type::BOTH; // both depth texture types are allowed by default
 	unsigned int runtime::OM_iter = 0;
 
 	runtime::runtime(uint32_t renderer) :
@@ -46,6 +51,7 @@ namespace reshade
 		"RESHADE_DEPTH_INPUT_IS_REVERSED=1",
 		"RESHADE_DEPTH_INPUT_IS_LOGARITHMIC=0" }),
 		_menu_key_data(),
+		_network_key_data(),
 		_screenshot_key_data(),
 		_effects_key_data(),
 		_screenshot_path(s_target_executable_path.parent_path()),
@@ -119,6 +125,7 @@ namespace reshade
 		_is_initialized = true;
 		_last_reload_time = std::chrono::high_resolution_clock::now();
 		_init_game_list(_game_list);
+		_init_allowed_network_techniques(_allowed_network_techniques);
 		_host_process_name = _get_host_app();
 
 		if (!_no_reload_on_init)
@@ -177,6 +184,16 @@ namespace reshade
 			_input->is_key_pressed(_screenshot_key_data[0], _screenshot_key_data[1] != 0, _screenshot_key_data[2] != 0, false))
 		{
 			save_screenshot();
+		}
+
+		if (_input->is_key_pressed(_network_key_data[0], _network_key_data[1] != 0, _network_key_data[2] != 0, false))
+		{
+			_whitelist_enabled = !_whitelist_enabled;
+			_check_allow_depth_techniques(true);
+		}
+		else
+		{
+			_check_allow_depth_techniques(false);
 		}
 
 		// Draw overlay
@@ -472,6 +489,35 @@ namespace reshade
 		game_list.emplace("AOM.exe", game::AOM);
 	}
 
+	void const runtime::_init_allowed_network_techniques(std::vector<std::string> &allowed_network_techniques)
+	{
+		allowed_network_techniques = { };
+		allowed_network_techniques.push_back("DisplayDepth");
+		allowed_network_techniques.push_back("Depth3D");
+		allowed_network_techniques.push_back("Polynomial_Barrel_Distortion_M");
+		allowed_network_techniques.push_back("Polynomial_Barrel_Distortion_S");
+		allowed_network_techniques.push_back("MXAO");
+	}
+
+	void const runtime::_check_allow_depth_techniques(bool changed)
+	{
+		// check if the current game is whitelisted
+		for (technique &technique : _techniques)
+		{
+			// check if technique is allowed
+			if (_whitelist_enabled == true && utility::findStringIC(_whitelisted_games, _host_process_name) == true && utility::findStringIC(_allowed_network_techniques, technique.name) == true)
+			{
+				technique.network_allowed = true;
+			}
+			else
+			{
+				technique.network_allowed = false;
+			}				
+		}
+
+		_network_settings_changed = changed;
+	}
+
 	void runtime::reload()
 	{
 		on_reset_effect();
@@ -750,6 +796,7 @@ namespace reshade
 		const ini_file config(_configuration_path);
 
 		config.get("INPUT", "KeyMenu", _menu_key_data);
+		config.get("INPUT", "KeyNetwork", _network_key_data);
 		config.get("INPUT", "KeyScreenshot", _screenshot_key_data);
 		config.get("INPUT", "KeyEffects", _effects_key_data);
 		config.get("INPUT", "InputProcessing", _input_processing_mode);
@@ -771,6 +818,11 @@ namespace reshade
 		config.get("DEPTH_BUFFER_DETECTION", "DepthBufferRetrievalMode", depth_buffer_retrieval_mode);
 		config.get("DEPTH_BUFFER_DETECTION", "DepthBufferTextureFormat", depth_buffer_texture_format);
 		config.get("DEPTH_BUFFER_DETECTION", "DepthBufferClearingNumber", depth_buffer_clearing_number);
+		config.get("DEPTH_BUFFER_DETECTION", "DepthBufferTextureType", depth_buffer_texture_type);
+
+		// new network whitelist params
+		config.get("NETWORK", "WhitelistEnabled", _whitelist_enabled);
+		config.get("NETWORK", "Whitelist", _whitelisted_games);
 
 		config.get("STYLE", "Alpha", _imgui_context->Style.Alpha);
 		config.get("STYLE", "ColBackground", _imgui_col_background);
@@ -858,6 +910,7 @@ namespace reshade
 		ini_file config(_configuration_path);
 
 		config.set("INPUT", "KeyMenu", _menu_key_data);
+		config.set("INPUT", "KeyNetwork", _network_key_data);
 		config.set("INPUT", "KeyScreenshot", _screenshot_key_data);
 		config.set("INPUT", "KeyEffects", _effects_key_data);
 		config.set("INPUT", "InputProcessing", _input_processing_mode);
@@ -879,6 +932,11 @@ namespace reshade
 		config.set("DEPTH_BUFFER_DETECTION", "DepthBufferRetrievalMode", depth_buffer_retrieval_mode);
 		config.set("DEPTH_BUFFER_DETECTION", "DepthBufferTextureFormat", depth_buffer_texture_format);
 		config.set("DEPTH_BUFFER_DETECTION", "DepthBufferClearingNumber", depth_buffer_clearing_number);
+		config.set("DEPTH_BUFFER_DETECTION", "DepthBufferTextureType", depth_buffer_texture_type);
+
+		// new network whitelist params
+		config.set("NETWORK", "WhitelistEnabled", _whitelist_enabled);
+		config.set("NETWORK", "Whitelist", _whitelisted_games);
 
 		config.set("STYLE", "Alpha", _imgui_context->Style.Alpha);
 		config.set("STYLE", "ColBackground", _imgui_col_background);
@@ -1173,7 +1231,7 @@ namespace reshade
 				ImGuiWindowFlags_NoInputs |
 				ImGuiWindowFlags_NoFocusOnAppearing);
 
-			ImGui::TextUnformatted("ReShade " VERSION_STRING_FILE " by crosire");
+			ImGui::TextUnformatted("ReShade " VERSION_STRING_FILE " by crosire (Thalixte's testings)");
 			ImGui::TextUnformatted("Visit https://reshade.me for news, updates, shaders and discussion.");
 
 			ImGui::Spacing();
@@ -1306,9 +1364,9 @@ namespace reshade
 		{
 			ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImGui::GetStyle().ItemSpacing * 2);
 
-			const char *const menu_items[] = { "Home", "Settings", "Depth Buffer detection settings", "Statistics", "About" };
+			const char *const menu_items[] = { "Home", "Settings", "Depth Buffer detection settings", "Network settings", "Statistics", "About" };
 
-			for (int i = 0; i < 5; i++)
+			for (int i = 0; i < 6; i++)
 			{
 				if (ImGui::Selectable(menu_items[i], _menu_index == i, 0, ImVec2(ImGui::CalcTextSize(menu_items[i]).x, 0)))
 				{
@@ -1334,9 +1392,12 @@ namespace reshade
 			draw_overlay_menu_depth_buffer_detection_settings();
 			break;
 		case 3:
-			draw_overlay_menu_statistics();
+			draw_overlay_menu_network_settings();
 			break;
 		case 4:
+			draw_overlay_menu_statistics();
+			break;
+		case 5:
 			draw_overlay_menu_about();
 			break;
 		}
@@ -1803,6 +1864,89 @@ namespace reshade
 			}
 		}
 	}
+	void runtime::draw_overlay_menu_network_settings()
+	{
+		char edit_buffer[2048];
+
+		const auto copy_key_shortcut_to_edit_buffer = [&edit_buffer](const auto &shortcut) {
+			size_t offset = 0;
+			if (shortcut[1]) memcpy(edit_buffer, "Ctrl + ", 8), offset += 7;
+			if (shortcut[2]) memcpy(edit_buffer + offset, "Shift + ", 9), offset += 8;
+			memcpy(edit_buffer + offset, keyboard_keys[shortcut[0]], sizeof(*keyboard_keys));
+		};
+		const auto copy_vector_to_edit_buffer = [&edit_buffer](const std::vector<std::string> &data) {
+			size_t offset = 0;
+			edit_buffer[0] = '\0';
+			for (const auto &line : data)
+			{
+				memcpy(edit_buffer + offset, line.c_str(), line.size());
+				offset += line.size();
+				edit_buffer[offset++] = '\n';
+				edit_buffer[offset] = '\0';
+			}
+		};
+
+		if (ImGui::CollapsingHeader("Network whitelist", ImGuiTreeNodeFlags_DefaultOpen))
+		{
+			std::string delimiter = ", ";
+			std::stringstream s;
+			std::string t = "Games listed below are allowed to use some depth shaders if whitelist is enabled.\n\n";
+			t += "Depth techniques allowed online are: \n";
+
+			std::copy(_allowed_network_techniques.begin(), _allowed_network_techniques.end(), std::ostream_iterator<std::string>(s, delimiter.c_str()));
+			t += s.str();
+			t.erase(t.end() - 2);
+			t += "\n\n";
+
+			const char *help_text = t.c_str();
+			ImGui::TextWrapped(help_text);
+
+			bool modified = false;
+			modified |= ImGui::Checkbox("Enable whitelist", &_whitelist_enabled);
+
+			if (modified == true)
+			{
+				_check_allow_depth_techniques(true);
+				save_configuration();
+			}
+
+			assert(_network_key_data[0] < 256);
+
+			copy_key_shortcut_to_edit_buffer(_network_key_data);
+
+			ImGui::InputText("Network whitelist Toggle Key", edit_buffer, sizeof(edit_buffer), ImGuiInputTextFlags_ReadOnly);
+
+			if (ImGui::IsItemActive())
+			{
+				const unsigned int last_key_pressed = _input->last_key_pressed();
+
+				if (last_key_pressed != 0 && (last_key_pressed < 0x10 || last_key_pressed > 0x11))
+				{
+					_network_key_data[0] = last_key_pressed;
+					_network_key_data[1] = _input->is_key_down(0x11);
+					_network_key_data[2] = _input->is_key_down(0x10);
+					
+					_check_allow_depth_techniques(true);
+					save_configuration();
+				}
+			}
+			else if (ImGui::IsItemHovered())
+			{
+				ImGui::SetTooltip("Click in the field and press any key to change the shortcut to that key.");
+			}
+
+			copy_vector_to_edit_buffer(_whitelisted_games);
+
+			if (ImGui::InputTextMultiline("Whitelisted games", edit_buffer, sizeof(edit_buffer), ImVec2(0, 100)))
+			{
+				const auto whitelisted_games = split(edit_buffer, '\n');
+				_whitelisted_games.assign(whitelisted_games.begin(), whitelisted_games.end());
+
+				_check_allow_depth_techniques(true);
+				save_configuration();
+			}
+		}
+	}
 	void runtime::draw_overlay_menu_depth_buffer_detection_settings()
 	{
 		if (ImGui::CollapsingHeader("General", ImGuiTreeNodeFlags_DefaultOpen))
@@ -1823,10 +1967,20 @@ namespace reshade
 			{
 				int depth_buffer_clearing_number_index = depth_buffer_clearing_number;
 
-				if (ImGui::Combo("Depth buffer clearing number", &depth_buffer_clearing_number_index, "None\0First\0Second\0Third\0Fourth\0Fifth\0Sixth\0Seventh\0Eighth\0Ninth\0"))
+				if (ImGui::Combo("Depth buffer clearing number", &depth_buffer_clearing_number_index, "First\0Second\0Third\0Fourth\0Fifth\0Sixth\0Seventh\0Eighth\0Ninth\0"))
 				{
 					_depth_buffer_settings_changed = true;
 					depth_buffer_clearing_number = depth_buffer_clearing_number_index;
+
+					save_configuration();
+				}
+
+				int depth_buffer_texture_type_index = depth_buffer_texture_type;
+
+				if (ImGui::Combo("Depth buffer texture type", &depth_buffer_texture_type_index, "Both\0Depth Buffer\0Stencil Buffer\0"))
+				{
+					_depth_buffer_settings_changed = true;
+					depth_buffer_texture_type = depth_buffer_texture_type_index;
 
 					save_configuration();
 				}
@@ -1859,21 +2013,21 @@ namespace reshade
 
 				switch (depth_buffer_texture_format_index)
 				{
-				case 0:
-					depth_buffer_texture_format = DXGI_FORMAT_UNKNOWN;
-					break;
-				case 1:
-					depth_buffer_texture_format = DXGI_FORMAT_R16_TYPELESS;
-					break;
-				case 2:
-					depth_buffer_texture_format = DXGI_FORMAT_R32_TYPELESS;
-					break;
-				case 3:
-					depth_buffer_texture_format = DXGI_FORMAT_R24G8_TYPELESS;
-					break;
-				case 4:
-					depth_buffer_texture_format = DXGI_FORMAT_R32G8X24_TYPELESS;
-					break;
+					case 0:
+						depth_buffer_texture_format = DXGI_FORMAT_UNKNOWN;
+						break;
+					case 1:
+						depth_buffer_texture_format = DXGI_FORMAT_R16_TYPELESS;
+						break;
+					case 2:
+						depth_buffer_texture_format = DXGI_FORMAT_R32_TYPELESS;
+						break;
+					case 3:
+						depth_buffer_texture_format = DXGI_FORMAT_R24G8_TYPELESS;
+						break;
+					case 4:
+						depth_buffer_texture_format = DXGI_FORMAT_R32G8X24_TYPELESS;
+						break;
 				}
 
 				save_configuration();

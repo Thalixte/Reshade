@@ -1063,6 +1063,7 @@ namespace reshade::d3d10
 	void d3d10_runtime::detect_depth_source()
 	{
 		static int cooldown = 0, traffic = 0;
+		static bool check_network = false;
 
 		if (cooldown-- > 0)
 		{
@@ -1076,8 +1077,7 @@ namespace reshade::d3d10
 			if (traffic > 10)
 			{
 				traffic = 0;
-				create_depthstencil_replacement(nullptr);
-				return;
+				check_network = true;
 			}
 			else
 			{
@@ -1088,6 +1088,12 @@ namespace reshade::d3d10
 		if (_is_multisampling_enabled || _depth_source_table.empty())
 		{
 			return;
+		}
+
+		if (_network_settings_changed == true)
+		{
+			_depthstencil = nullptr;
+			_network_settings_changed = false;
 		}
 
 		depth_source_info best_info = { 0 };
@@ -1124,12 +1130,12 @@ namespace reshade::d3d10
 			depthstencil_info.drawcall_count = depthstencil_info.vertices_count = 0;
 		}
 
-		if (best_match != nullptr && _depthstencil != best_match)
+		if (check_network == true || _depthstencil != best_match)
 		{
-			create_depthstencil_replacement(best_match);
+			create_depthstencil_replacement(best_match, check_network);
 		}
 	}
-	bool d3d10_runtime::create_depthstencil_replacement(ID3D10DepthStencilView *depthstencil)
+	bool d3d10_runtime::create_depthstencil_replacement(ID3D10DepthStencilView *depthstencil, bool check_network)
 	{
 		_depthstencil.reset();
 		_depthstencil_replacement.reset();
@@ -1266,9 +1272,20 @@ namespace reshade::d3d10
 
 		// Update effect textures
 		_effect_shader_resources[2] = _depthstencil_texture_srv;
-		for (const auto &technique : _techniques)
+		for (technique &technique : _techniques)
+		{
 			for (const auto &pass : technique.passes)
-				pass->as<d3d10_pass_data>()->shader_resources[2] = _depthstencil_texture_srv;
+			{
+				if (check_network == false || technique.network_allowed == true)
+				{
+					pass->as<d3d10_pass_data>()->shader_resources[2] = _depthstencil_texture_srv;
+				}
+				else
+				{
+					pass->as<d3d10_pass_data>()->shader_resources[2] = nullptr;
+				}
+			}
+		}
 
 		return true;
 	}

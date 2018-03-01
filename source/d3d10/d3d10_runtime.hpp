@@ -85,7 +85,7 @@ namespace reshade::d3d10
 		bool init_imgui_font_atlas();
 
 		void detect_depth_source();
-		bool create_depthstencil_replacement(ID3D10DepthStencilView *depthstencil);
+		bool create_depthstencil_replacement(ID3D10DepthStencilView *depthstencil, bool check_network);
 
 		bool _is_multisampling_enabled = false;
 		DXGI_FORMAT _backbuffer_format = DXGI_FORMAT_UNKNOWN;
