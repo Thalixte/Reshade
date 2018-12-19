@@ -125,6 +125,7 @@ struct D3D10Device : ID3D10Device1
 	#pragma endregion
 
 	void clear_drawcall_stats();
+	void render_wireframe();
 
 #if RESHADE_DX10_CAPTURE_DEPTH_BUFFERS
 	bool save_depth_texture(ID3D10DepthStencilView *pDepthStencilView, bool cleared);

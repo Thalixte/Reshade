@@ -37,6 +37,7 @@ reshade::runtime::runtime(uint32_t renderer) :
 	_reload_key_data(),
 	_effects_key_data(),
 	_screenshot_key_data(),
+	_wireframe_key_data(),
 	_screenshot_path(g_target_executable_path.parent_path())
 {
 	// Default shortcut PrtScrn
@@ -125,6 +126,15 @@ void reshade::runtime::on_present()
 
 		if (_input->is_key_pressed(_screenshot_key_data))
 			save_screenshot();
+
+		if (_input->is_key_pressed(_wireframe_key_data))
+			_wireframe_mode = !_wireframe_mode;
+	}
+
+	// disable wireframe_mode in case of network activity
+	if (_has_high_network_activity)
+	{
+		_wireframe_mode = false;
 	}
 
 #if RESHADE_GUI
@@ -248,16 +258,16 @@ void reshade::runtime::load_effect(const std::filesystem::path &path, size_t &ou
 		{
 			switch (constant.type.base)
 			{
-			case reshadefx::type::t_int:
-				preset.get(path.filename().u8string(), constant.name, constant.initializer_value.as_int);
-				break;
-			case reshadefx::type::t_bool:
-			case reshadefx::type::t_uint:
-				preset.get(path.filename().u8string(), constant.name, constant.initializer_value.as_uint);
-				break;
-			case reshadefx::type::t_float:
-				preset.get(path.filename().u8string(), constant.name, constant.initializer_value.as_float);
-				break;
+				case reshadefx::type::t_int:
+					preset.get(path.filename().u8string(), constant.name, constant.initializer_value.as_int);
+					break;
+				case reshadefx::type::t_bool:
+				case reshadefx::type::t_uint:
+					preset.get(path.filename().u8string(), constant.name, constant.initializer_value.as_uint);
+					break;
+				case reshadefx::type::t_float:
+					preset.get(path.filename().u8string(), constant.name, constant.initializer_value.as_float);
+					break;
 			}
 		}
 	}
@@ -572,96 +582,96 @@ void reshade::runtime::update_and_render_effects()
 	{
 		switch (variable.special)
 		{
-		case special_uniform::frame_time:
-			set_uniform_value(variable, _last_frame_duration.count() * 1e-6f, 0.0f, 0.0f, 0.0f);
-			break;
-		case special_uniform::frame_count:
-			if (variable.type.is_boolean())
-				set_uniform_value(variable, (_framecount % 2) == 0);
-			else
-				set_uniform_value(variable, static_cast<unsigned int>(_framecount % UINT_MAX));
-			break;
-		case special_uniform::random: {
-			const int min = variable.annotations["min"].second.as_int[0];
-			const int max = variable.annotations["max"].second.as_int[0];
-			set_uniform_value(variable, min + (std::rand() % (max - min + 1)));
-			break; }
-		case special_uniform::ping_pong: {
-			const float min = variable.annotations["min"].second.as_float[0];
-			const float max = variable.annotations["max"].second.as_float[0];
-			const float step_min = variable.annotations["step"].second.as_float[0];
-			const float step_max = variable.annotations["step"].second.as_float[1];
-			float increment = step_max == 0 ? step_min : (step_min + std::fmodf(static_cast<float>(std::rand()), step_max - step_min + 1));
-			const float smoothing = variable.annotations["smoothing"].second.as_float[0];
-
-			float value[2] = { 0, 0 };
-			get_uniform_value(variable, value, 2);
-			if (value[1] >= 0)
-			{
-				increment = std::max(increment - std::max(0.0f, smoothing - (max - value[0])), 0.05f);
-				increment *= _last_frame_duration.count() * 1e-9f;
-
-				if ((value[0] += increment) >= max)
-					value[0] = max, value[1] = -1;
-			}
-			else
-			{
-				increment = std::max(increment - std::max(0.0f, smoothing - (value[0] - min)), 0.05f);
-				increment *= _last_frame_duration.count() * 1e-9f;
-
-				if ((value[0] -= increment) <= min)
-					value[0] = min, value[1] = +1;
-			}
-			set_uniform_value(variable, value, 2);
-			break; }
-		case special_uniform::date:
-			set_uniform_value(variable, _date, 4);
-			break;
-		case special_uniform::timer:
-			set_uniform_value(variable, std::chrono::duration_cast<std::chrono::nanoseconds>(_last_present_time - _start_time).count() * 1e-6f);
-			break;
-		case special_uniform::key:
-			if (const int keycode = variable.annotations["keycode"].second.as_int[0];
-				keycode > 7 && keycode < 256)
-			{
-				const auto &mode = variable.annotations["mode"].second.string_data;
-				if (mode == "toggle" || variable.annotations["toggle"].second.as_uint[0])
-				{
-					bool current_value = false;
-					get_uniform_value(variable, &current_value, 1);
-					if (_input->is_key_pressed(keycode))
-						set_uniform_value(variable, !current_value);
-				}
-				else if (mode == "press")
-					set_uniform_value(variable, _input->is_key_pressed(keycode));
+			case special_uniform::frame_time:
+				set_uniform_value(variable, _last_frame_duration.count() * 1e-6f, 0.0f, 0.0f, 0.0f);
+				break;
+			case special_uniform::frame_count:
+				if (variable.type.is_boolean())
+					set_uniform_value(variable, (_framecount % 2) == 0);
 				else
-					set_uniform_value(variable, _input->is_key_down(keycode));
-			}
-			break;
-		case special_uniform::mouse_point:
-			set_uniform_value(variable, _input->mouse_position_x(), _input->mouse_position_y());
-			break;
-		case special_uniform::mouse_delta:
-			set_uniform_value(variable, _input->mouse_movement_delta_x(), _input->mouse_movement_delta_y());
-			break;
-		case special_uniform::mouse_button:
-			if (const int keycode = variable.annotations["keycode"].second.as_int[0];
-				keycode >= 0 && keycode < 5)
-			{
-				const auto &mode = variable.annotations["mode"].second.string_data;
-				if (mode == "toggle" || variable.annotations["toggle"].second.as_uint[0])
+					set_uniform_value(variable, static_cast<unsigned int>(_framecount % UINT_MAX));
+				break;
+			case special_uniform::random: {
+				const int min = variable.annotations["min"].second.as_int[0];
+				const int max = variable.annotations["max"].second.as_int[0];
+				set_uniform_value(variable, min + (std::rand() % (max - min + 1)));
+				break; }
+			case special_uniform::ping_pong: {
+				const float min = variable.annotations["min"].second.as_float[0];
+				const float max = variable.annotations["max"].second.as_float[0];
+				const float step_min = variable.annotations["step"].second.as_float[0];
+				const float step_max = variable.annotations["step"].second.as_float[1];
+				float increment = step_max == 0 ? step_min : (step_min + std::fmodf(static_cast<float>(std::rand()), step_max - step_min + 1));
+				const float smoothing = variable.annotations["smoothing"].second.as_float[0];
+
+				float value[2] = { 0, 0 };
+				get_uniform_value(variable, value, 2);
+				if (value[1] >= 0)
 				{
-					bool current_value = false;
-					get_uniform_value(variable, &current_value, 1);
-					if (_input->is_mouse_button_pressed(keycode))
-						set_uniform_value(variable, !current_value);
+					increment = std::max(increment - std::max(0.0f, smoothing - (max - value[0])), 0.05f);
+					increment *= _last_frame_duration.count() * 1e-9f;
+
+					if ((value[0] += increment) >= max)
+						value[0] = max, value[1] = -1;
 				}
-				else if (mode == "press")
-					set_uniform_value(variable, _input->is_mouse_button_pressed(keycode));
 				else
-					set_uniform_value(variable, _input->is_mouse_button_down(keycode));
-			}
-			break;
+				{
+					increment = std::max(increment - std::max(0.0f, smoothing - (value[0] - min)), 0.05f);
+					increment *= _last_frame_duration.count() * 1e-9f;
+
+					if ((value[0] -= increment) <= min)
+						value[0] = min, value[1] = +1;
+				}
+				set_uniform_value(variable, value, 2);
+				break; }
+			case special_uniform::date:
+				set_uniform_value(variable, _date, 4);
+				break;
+			case special_uniform::timer:
+				set_uniform_value(variable, std::chrono::duration_cast<std::chrono::nanoseconds>(_last_present_time - _start_time).count() * 1e-6f);
+				break;
+			case special_uniform::key:
+				if (const int keycode = variable.annotations["keycode"].second.as_int[0];
+					keycode > 7 && keycode < 256)
+				{
+					const auto &mode = variable.annotations["mode"].second.string_data;
+					if (mode == "toggle" || variable.annotations["toggle"].second.as_uint[0])
+					{
+						bool current_value = false;
+						get_uniform_value(variable, &current_value, 1);
+						if (_input->is_key_pressed(keycode))
+							set_uniform_value(variable, !current_value);
+					}
+					else if (mode == "press")
+						set_uniform_value(variable, _input->is_key_pressed(keycode));
+					else
+						set_uniform_value(variable, _input->is_key_down(keycode));
+				}
+				break;
+			case special_uniform::mouse_point:
+				set_uniform_value(variable, _input->mouse_position_x(), _input->mouse_position_y());
+				break;
+			case special_uniform::mouse_delta:
+				set_uniform_value(variable, _input->mouse_movement_delta_x(), _input->mouse_movement_delta_y());
+				break;
+			case special_uniform::mouse_button:
+				if (const int keycode = variable.annotations["keycode"].second.as_int[0];
+					keycode >= 0 && keycode < 5)
+				{
+					const auto &mode = variable.annotations["mode"].second.string_data;
+					if (mode == "toggle" || variable.annotations["toggle"].second.as_uint[0])
+					{
+						bool current_value = false;
+						get_uniform_value(variable, &current_value, 1);
+						if (_input->is_mouse_button_pressed(keycode))
+							set_uniform_value(variable, !current_value);
+					}
+					else if (mode == "press")
+						set_uniform_value(variable, _input->is_mouse_button_pressed(keycode));
+					else
+						set_uniform_value(variable, _input->is_mouse_button_down(keycode));
+				}
+				break;
 		}
 	}
 
@@ -730,6 +740,7 @@ void reshade::runtime::load_config()
 	const ini_file config(_configuration_path);
 
 	config.get("INPUT", "KeyScreenshot", _screenshot_key_data);
+	config.get("INPUT", "KeyWireframe", _wireframe_key_data);
 	config.get("INPUT", "KeyReload", _reload_key_data);
 	config.get("INPUT", "KeyEffects", _effects_key_data);
 
@@ -784,6 +795,7 @@ void reshade::runtime::save_config(const std::filesystem::path &path) const
 	ini_file config(_configuration_path, path);
 
 	config.set("INPUT", "KeyScreenshot", _screenshot_key_data);
+	config.set("INPUT", "KeyWireframe", _wireframe_key_data);
 	config.set("INPUT", "KeyReload", _reload_key_data);
 	config.set("INPUT", "KeyEffects", _effects_key_data);
 
@@ -827,22 +839,22 @@ void reshade::runtime::load_preset(const std::filesystem::path &path)
 
 		switch (variable.type.base)
 		{
-		case reshadefx::type::t_int:
-			get_uniform_value(variable, values.as_int, 16);
-			preset.get(_loaded_effects[variable.effect_index].source_file.filename().u8string(), variable.name, values.as_int);
-			set_uniform_value(variable, values.as_int, 16);
-			break;
-		case reshadefx::type::t_bool:
-		case reshadefx::type::t_uint:
-			get_uniform_value(variable, values.as_uint, 16);
-			preset.get(_loaded_effects[variable.effect_index].source_file.filename().u8string(), variable.name, values.as_uint);
-			set_uniform_value(variable, values.as_uint, 16);
-			break;
-		case reshadefx::type::t_float:
-			get_uniform_value(variable, values.as_float, 16);
-			preset.get(_loaded_effects[variable.effect_index].source_file.filename().u8string(), variable.name, values.as_float);
-			set_uniform_value(variable, values.as_float, 16);
-			break;
+			case reshadefx::type::t_int:
+				get_uniform_value(variable, values.as_int, 16);
+				preset.get(_loaded_effects[variable.effect_index].source_file.filename().u8string(), variable.name, values.as_int);
+				set_uniform_value(variable, values.as_int, 16);
+				break;
+			case reshadefx::type::t_bool:
+			case reshadefx::type::t_uint:
+				get_uniform_value(variable, values.as_uint, 16);
+				preset.get(_loaded_effects[variable.effect_index].source_file.filename().u8string(), variable.name, values.as_uint);
+				set_uniform_value(variable, values.as_uint, 16);
+				break;
+			case reshadefx::type::t_float:
+				get_uniform_value(variable, values.as_float, 16);
+				preset.get(_loaded_effects[variable.effect_index].source_file.filename().u8string(), variable.name, values.as_float);
+				set_uniform_value(variable, values.as_float, 16);
+				break;
 		}
 	}
 
@@ -896,19 +908,19 @@ void reshade::runtime::save_preset(const std::filesystem::path &path) const
 
 		switch (variable.type.base)
 		{
-		case reshadefx::type::t_int:
-			get_uniform_value(variable, values.as_int, 16);
-			preset.set(_loaded_effects[variable.effect_index].source_file.filename().u8string(), variable.name, variant(values.as_int, variable.type.components()));
-			break;
-		case reshadefx::type::t_bool:
-		case reshadefx::type::t_uint:
-			get_uniform_value(variable, values.as_uint, 16);
-			preset.set(_loaded_effects[variable.effect_index].source_file.filename().u8string(), variable.name, variant(values.as_uint, variable.type.components()));
-			break;
-		case reshadefx::type::t_float:
-			get_uniform_value(variable, values.as_float, 16);
-			preset.set(_loaded_effects[variable.effect_index].source_file.filename().u8string(), variable.name, variant(values.as_float, variable.type.components()));
-			break;
+			case reshadefx::type::t_int:
+				get_uniform_value(variable, values.as_int, 16);
+				preset.set(_loaded_effects[variable.effect_index].source_file.filename().u8string(), variable.name, variant(values.as_int, variable.type.components()));
+				break;
+			case reshadefx::type::t_bool:
+			case reshadefx::type::t_uint:
+				get_uniform_value(variable, values.as_uint, 16);
+				preset.set(_loaded_effects[variable.effect_index].source_file.filename().u8string(), variable.name, variant(values.as_uint, variable.type.components()));
+				break;
+			case reshadefx::type::t_float:
+				get_uniform_value(variable, values.as_float, 16);
+				preset.set(_loaded_effects[variable.effect_index].source_file.filename().u8string(), variable.name, variant(values.as_float, variable.type.components()));
+				break;
 		}
 	}
 }
@@ -944,12 +956,12 @@ void reshade::runtime::save_screenshot() const
 
 		switch (_screenshot_format)
 		{
-		case 0:
-			success = stbi_write_bmp_to_func(write_callback, file, _width, _height, 4, data.data()) != 0;
-			break;
-		case 1:
-			success = stbi_write_png_to_func(write_callback, file, _width, _height, 4, data.data(), 0) != 0;
-			break;
+			case 0:
+				success = stbi_write_bmp_to_func(write_callback, file, _width, _height, 4, data.data()) != 0;
+				break;
+			case 1:
+				success = stbi_write_png_to_func(write_callback, file, _width, _height, 4, data.data(), 0) != 0;
+				break;
 		}
 
 		fclose(file);
@@ -1048,19 +1060,19 @@ void reshade::runtime::set_uniform_value(uniform &variable, const bool *values, 
 	const auto data = static_cast<uint8_t *>(alloca(count * 4));
 	switch (_renderer_id != 0x9000 ? variable.type.base : reshadefx::type::t_float)
 	{
-	case reshadefx::type::t_bool:
-		for (size_t i = 0; i < count; ++i)
-			reinterpret_cast<int32_t *>(data)[i] = values[i] ? -1 : 0;
-		break;
-	case reshadefx::type::t_int:
-	case reshadefx::type::t_uint:
-		for (size_t i = 0; i < count; ++i)
-			reinterpret_cast<int32_t *>(data)[i] = values[i] ? 1 : 0;
-		break;
-	case reshadefx::type::t_float:
-		for (size_t i = 0; i < count; ++i)
-			reinterpret_cast<float *>(data)[i] = values[i] ? 1.0f : 0.0f;
-		break;
+		case reshadefx::type::t_bool:
+			for (size_t i = 0; i < count; ++i)
+				reinterpret_cast<int32_t *>(data)[i] = values[i] ? -1 : 0;
+			break;
+		case reshadefx::type::t_int:
+		case reshadefx::type::t_uint:
+			for (size_t i = 0; i < count; ++i)
+				reinterpret_cast<int32_t *>(data)[i] = values[i] ? 1 : 0;
+			break;
+		case reshadefx::type::t_float:
+			for (size_t i = 0; i < count; ++i)
+				reinterpret_cast<float *>(data)[i] = values[i] ? 1.0f : 0.0f;
+			break;
 	}
 
 	set_uniform_value(variable, data, count * 4);
@@ -1123,15 +1135,15 @@ void reshade::runtime::reset_uniform_value(uniform &variable)
 		{
 			switch (variable.type.base)
 			{
-			case reshadefx::type::t_int:
-				reinterpret_cast<float *>(_uniform_data_storage.data() + variable.storage_offset)[i] = static_cast<float>(variable.initializer_value.as_int[i]);
-				break;
-			case reshadefx::type::t_uint:
-				reinterpret_cast<float *>(_uniform_data_storage.data() + variable.storage_offset)[i] = static_cast<float>(variable.initializer_value.as_uint[i]);
-				break;
-			case reshadefx::type::t_float:
-				reinterpret_cast<float *>(_uniform_data_storage.data() + variable.storage_offset)[i] = variable.initializer_value.as_float[i];
-				break;
+				case reshadefx::type::t_int:
+					reinterpret_cast<float *>(_uniform_data_storage.data() + variable.storage_offset)[i] = static_cast<float>(variable.initializer_value.as_int[i]);
+					break;
+				case reshadefx::type::t_uint:
+					reinterpret_cast<float *>(_uniform_data_storage.data() + variable.storage_offset)[i] = static_cast<float>(variable.initializer_value.as_uint[i]);
+					break;
+				case reshadefx::type::t_float:
+					reinterpret_cast<float *>(_uniform_data_storage.data() + variable.storage_offset)[i] = variable.initializer_value.as_float[i];
+					break;
 			}
 		}
 	}

@@ -125,6 +125,10 @@ namespace reshade
 			ini_file config(_configuration_path);
 			function(config);
 		}
+		/// <summary>
+		/// Return the enabling state of the wireframe mode
+		/// </summary>
+		bool wireframe_mode() const { return _wireframe_mode; }
 
 	protected:
 		/// <summary>
@@ -266,6 +270,7 @@ namespace reshade
 		unsigned int _reload_key_data[4];
 		unsigned int _effects_key_data[4];
 		unsigned int _screenshot_key_data[4];
+		unsigned int _wireframe_key_data[4];
 		int _screenshot_format = 0;
 		std::filesystem::path _screenshot_path;
 		std::filesystem::path _configuration_path;
@@ -349,6 +354,7 @@ namespace reshade
 		char _effect_filter_buffer[64] = {};
 		std::filesystem::path _file_selection_path;
 		imgui_code_editor _editor;
+		bool _wireframe_mode = false;
 #endif
 	};
 }

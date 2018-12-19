@@ -191,6 +191,7 @@ struct D3D11DeviceContext : ID3D11DeviceContext3
 	#pragma endregion
 
 	void clear_drawcall_stats();
+	void render_wireframe();
 
 #if RESHADE_DX11_CAPTURE_DEPTH_BUFFERS
 	bool save_depth_texture(ID3D11DepthStencilView *pDepthStencilView, bool cleared);
