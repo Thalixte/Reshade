@@ -640,6 +640,15 @@ HRESULT STDMETHODCALLTYPE Direct3DDevice9::DrawPrimitive(D3DPRIMITIVETYPE Primit
 		swapchain->_runtime->on_draw_call(PrimitiveType, PrimitiveCount);
 	}
 
+	if (_implicit_swapchain->_runtime->wireframe_mode())
+	{
+		_orig->SetRenderState(D3DRS_FILLMODE, D3DFILL_WIREFRAME);
+	}
+	else
+	{
+		_orig->SetRenderState(D3DRS_FILLMODE, D3DFILL_SOLID);
+	}
+
 	return _orig->DrawPrimitive(PrimitiveType, StartVertex, PrimitiveCount);
 }
 HRESULT STDMETHODCALLTYPE Direct3DDevice9::DrawIndexedPrimitive(D3DPRIMITIVETYPE PrimitiveType, INT BaseVertexIndex, UINT MinVertexIndex, UINT NumVertices, UINT StartIndex, UINT PrimitiveCount)
@@ -654,6 +663,15 @@ HRESULT STDMETHODCALLTYPE Direct3DDevice9::DrawIndexedPrimitive(D3DPRIMITIVETYPE
 		assert(swapchain->_runtime != nullptr);
 
 		swapchain->_runtime->on_draw_call(PrimitiveType, PrimitiveCount);
+	}
+
+	if (_implicit_swapchain->_runtime->wireframe_mode())
+	{
+		_orig->SetRenderState(D3DRS_FILLMODE, D3DFILL_WIREFRAME);
+	}
+	else
+	{
+		_orig->SetRenderState(D3DRS_FILLMODE, D3DFILL_SOLID);
 	}
 
 	return _orig->DrawIndexedPrimitive(PrimitiveType, BaseVertexIndex, MinVertexIndex, NumVertices, StartIndex, PrimitiveCount);
@@ -672,6 +690,15 @@ HRESULT STDMETHODCALLTYPE Direct3DDevice9::DrawPrimitiveUP(D3DPRIMITIVETYPE Prim
 		swapchain->_runtime->on_draw_call(PrimitiveType, PrimitiveCount);
 	}
 
+	if (_implicit_swapchain->_runtime->wireframe_mode())
+	{
+		_orig->SetRenderState(D3DRS_FILLMODE, D3DFILL_WIREFRAME);
+	}
+	else
+	{
+		_orig->SetRenderState(D3DRS_FILLMODE, D3DFILL_SOLID);
+	}
+
 	return _orig->DrawPrimitiveUP(PrimitiveType, PrimitiveCount, pVertexStreamZeroData, VertexStreamZeroStride);
 }
 HRESULT STDMETHODCALLTYPE Direct3DDevice9::DrawIndexedPrimitiveUP(D3DPRIMITIVETYPE PrimitiveType, UINT MinVertexIndex, UINT NumVertices, UINT PrimitiveCount, const void *pIndexData, D3DFORMAT IndexDataFormat, const void *pVertexStreamZeroData, UINT VertexStreamZeroStride)
@@ -686,6 +713,15 @@ HRESULT STDMETHODCALLTYPE Direct3DDevice9::DrawIndexedPrimitiveUP(D3DPRIMITIVETY
 		assert(swapchain->_runtime != nullptr);
 
 		swapchain->_runtime->on_draw_call(PrimitiveType, PrimitiveCount);
+	}
+
+	if (_implicit_swapchain->_runtime->wireframe_mode())
+	{
+		_orig->SetRenderState(D3DRS_FILLMODE, D3DFILL_WIREFRAME);
+	}
+	else
+	{
+		_orig->SetRenderState(D3DRS_FILLMODE, D3DFILL_SOLID);
 	}
 
 	return _orig->DrawIndexedPrimitiveUP(PrimitiveType, MinVertexIndex, NumVertices, PrimitiveCount, pIndexData, IndexDataFormat, pVertexStreamZeroData, VertexStreamZeroStride);

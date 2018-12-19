@@ -15,6 +15,25 @@ void D3D10Device::clear_drawcall_stats()
 	_clear_DSV_iter = 1;
 }
 
+void D3D10Device::render_wireframe()
+{
+	if (this->_runtimes.empty())
+		return;
+
+	const auto runtime = this->_runtimes.front();
+
+	if (runtime->wireframe_mode())
+	{
+		com_ptr<ID3D10RasterizerState> rasterizer_state;
+		D3D10_RASTERIZER_DESC desc = {};
+		desc.FillMode = D3D10_FILL_WIREFRAME;
+		desc.CullMode = D3D10_CULL_NONE;
+
+		_orig->CreateRasterizerState(&desc, &rasterizer_state);
+		_orig->RSSetState(rasterizer_state.get());
+	}
+}
+
 #if RESHADE_DX10_CAPTURE_DEPTH_BUFFERS
 
 bool D3D10Device::save_depth_texture(ID3D10DepthStencilView *pDepthStencilView, bool cleared)
@@ -204,11 +223,13 @@ void STDMETHODCALLTYPE D3D10Device::VSSetShader(ID3D10VertexShader *pVertexShade
 }
 void STDMETHODCALLTYPE D3D10Device::DrawIndexed(UINT IndexCount, UINT StartIndexLocation, INT BaseVertexLocation)
 {
+	render_wireframe();
 	_orig->DrawIndexed(IndexCount, StartIndexLocation, BaseVertexLocation);
 	_draw_call_tracker.on_draw(this, IndexCount);
 }
 void STDMETHODCALLTYPE D3D10Device::Draw(UINT VertexCount, UINT StartVertexLocation)
 {
+	render_wireframe();
 	_orig->Draw(VertexCount, StartVertexLocation);
 	_draw_call_tracker.on_draw(this, VertexCount);
 }
@@ -230,11 +251,13 @@ void STDMETHODCALLTYPE D3D10Device::IASetIndexBuffer(ID3D10Buffer *pIndexBuffer,
 }
 void STDMETHODCALLTYPE D3D10Device::DrawIndexedInstanced(UINT IndexCountPerInstance, UINT InstanceCount, UINT StartIndexLocation, INT BaseVertexLocation, UINT StartInstanceLocation)
 {
+	render_wireframe();
 	_orig->DrawIndexedInstanced(IndexCountPerInstance, InstanceCount, StartIndexLocation, BaseVertexLocation, StartInstanceLocation);
 	_draw_call_tracker.on_draw(this, IndexCountPerInstance * InstanceCount);
 }
 void STDMETHODCALLTYPE D3D10Device::DrawInstanced(UINT VertexCountPerInstance, UINT InstanceCount, UINT StartVertexLocation, UINT StartInstanceLocation)
 {
+	render_wireframe();
 	_orig->DrawInstanced(VertexCountPerInstance, InstanceCount, StartVertexLocation, StartInstanceLocation);
 	_draw_call_tracker.on_draw(this, VertexCountPerInstance * InstanceCount);
 }
@@ -291,6 +314,7 @@ void STDMETHODCALLTYPE D3D10Device::SOSetTargets(UINT NumBuffers, ID3D10Buffer *
 }
 void STDMETHODCALLTYPE D3D10Device::DrawAuto()
 {
+	render_wireframe();
 	_orig->DrawAuto();
 	_draw_call_tracker.on_draw(this, 0);
 }
