@@ -8,6 +8,7 @@
 #include "runtime.hpp"
 #include "effect_expression.hpp"
 #include "com_ptr.hpp"
+#include <map>
 #include <d3d9.h>
 
 namespace reshade::d3d9
@@ -47,6 +48,8 @@ namespace reshade::d3d9
 		void on_draw_call(D3DPRIMITIVETYPE type, UINT count);
 		void on_set_depthstencil_surface(IDirect3DSurface9 *&depthstencil);
 		void on_get_depthstencil_surface(IDirect3DSurface9 *&depthstencil);
+		void before_clear(com_ptr<IDirect3DSurface9> depthstencil);
+		void after_clear(com_ptr<IDirect3DSurface9> depthstencil);
 
 		void capture_frame(uint8_t *buffer) const override;
 		void update_texture(texture &texture, const uint8_t *data) override;
@@ -72,6 +75,12 @@ namespace reshade::d3d9
 			UINT width, height;
 			UINT drawcall_count, vertices_count;
 		};
+		struct depth_clearing_info
+		{
+			com_ptr<IDirect3DSurface9> depthstencil;
+			UINT width, height;
+			UINT drawcall_count, vertices_count;
+		};
 
 		bool init_backbuffer_texture();
 		bool init_default_depth_stencil();
@@ -94,13 +103,18 @@ namespace reshade::d3d9
 		UINT _num_samplers;
 		UINT _num_simultaneous_rendertargets;
 		bool _disable_intz = false;
+		bool _preserve_depth_buffer = false;
+		UINT _preserve_starting_index = 0;
 		bool _is_multisampling_enabled = false;
+		int _clear_idx = 0;
+		int _imax_clear_idx = 0;
 		D3DFORMAT _backbuffer_format = D3DFMT_UNKNOWN;
 		com_ptr<IDirect3DStateBlock9> _app_state;
 		com_ptr<IDirect3DSurface9> _depthstencil;
 		com_ptr<IDirect3DSurface9> _depthstencil_replacement;
 		com_ptr<IDirect3DSurface9> _default_depthstencil;
 		std::unordered_map<IDirect3DSurface9 *, depth_source_info> _depth_source_table;
+		std::map<int, depth_clearing_info> _depth_clearing_table;
 
 		com_ptr<IDirect3DVertexBuffer9> _effect_triangle_buffer;
 		com_ptr<IDirect3DVertexDeclaration9> _effect_triangle_layout;
