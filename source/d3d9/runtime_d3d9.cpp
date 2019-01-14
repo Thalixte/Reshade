@@ -99,10 +99,14 @@ namespace reshade::d3d9
 		subscribe_to_load_config([this](const ini_file& config) {
 			config.get("DX9_BUFFER_DETECTION", "DisableINTZ", _disable_intz);
 			config.get("DX9_BUFFER_DETECTION", "PreserveDepthBuffer", _preserve_depth_buffer);
+			config.get("DX9_BUFFER_DETECTION", "DisableDepthBufferSizeRestriction", _disable_depth_buffer_size_restriction);
+			config.get("DX9_BUFFER_DETECTION", "OutlastFix", _outlast_fix);
 		});
 		subscribe_to_save_config([this](ini_file& config) {
 			config.set("DX9_BUFFER_DETECTION", "DisableINTZ", _disable_intz);
 			config.set("DX9_BUFFER_DETECTION", "PreserveDepthBuffer", _preserve_depth_buffer);
+			config.set("DX9_BUFFER_DETECTION", "DisableDepthBufferSizeRestriction", _disable_depth_buffer_size_restriction);
+			config.set("DX9_BUFFER_DETECTION", "OutlastFix", _outlast_fix);
 		});
 	}
 	runtime_d3d9::~runtime_d3d9()
@@ -274,6 +278,8 @@ namespace reshade::d3d9
 
 		_depth_source_table.clear();
 
+		_depth_buffer_table.clear();
+
 		_depth_clearing_table.clear();
 	}
 	void runtime_d3d9::on_present()
@@ -360,20 +366,26 @@ namespace reshade::d3d9
 			int vertices = 0;
 			int drawcalls = 0;
 
-			for (const auto &it : _depth_clearing_table)
+			if (!_outlast_fix)
 			{
-				if (it.second.drawcall_count > drawcalls)
+				for (const auto &it : _depth_clearing_table)
 				{
-					_preserve_starting_index = it.first;
-					vertices = it.second.vertices_count;
-					drawcalls = it.second.drawcall_count;
+					if (it.second.vertices_count > vertices)
+					{
+						_preserve_starting_index = it.first;
+						vertices = it.second.vertices_count;
+						drawcalls = it.second.drawcall_count;
+					}
 				}
 			}
 
 			_device->SetDepthStencilSurface(_depthstencil_replacement.get());
-			_device->Clear(0, nullptr, D3DCLEAR_ZBUFFER | D3DCLEAR_STENCIL, 0, 1.0f, 0);
-			_imax_clear_idx = _clear_idx;
+			_device->Clear(0, nullptr, D3DCLEAR_ZBUFFER, 0, 1.0f, 0);
+			_clear_buffer_idx = 0;
 			_clear_idx = 0;
+			_db_vertices = 0;
+			_db_drawcalls = 0;
+			_depth_buffer_table.clear();
 			_depth_clearing_table.clear();
 		}
 	}
@@ -420,12 +432,25 @@ namespace reshade::d3d9
 				depthstencil = _depthstencil;
 			}
 
-			const auto it = _depth_source_table.find(depthstencil.get());
-
-			if (it != _depth_source_table.end())
+			if (!_preserve_depth_buffer)
 			{
-				it->second.drawcall_count = _drawcalls;
-				it->second.vertices_count += vertices;
+				const auto it = _depth_source_table.find(depthstencil.get());
+
+				if (it != _depth_source_table.end())
+				{
+					it->second.drawcall_count = _drawcalls;
+					it->second.vertices_count += vertices;
+				}
+			}
+			else
+			{
+				const auto it = _depth_buffer_table.find(_clear_buffer_idx);
+
+				if (it != _depth_buffer_table.end())
+				{
+					it->second.drawcall_count++;
+					it->second.vertices_count += vertices;
+				}
 			}
 		}
 	}
@@ -437,9 +462,37 @@ namespace reshade::d3d9
 		if (!_preserve_depth_buffer)
 			return;
 
-		if (_clear_idx >= _preserve_starting_index && depthstencil == _depthstencil_replacement)
+		if (depthstencil == _depthstencil_replacement)
 		{
-			_device->SetDepthStencilSurface(nullptr);
+			if (_outlast_fix)
+			{
+				const auto it = _depth_clearing_table.find(_clear_idx);
+
+				if (it != _depth_clearing_table.end())
+				{
+					if (it->second.vertices_count > _db_vertices)
+					{
+						_preserve_starting_index = it->first;
+						_db_vertices = it->second.vertices_count;
+						_db_drawcalls = it->second.drawcall_count;
+					}
+				}
+			}
+
+			if (!_outlast_fix)
+			{
+				if (_clear_idx >= _preserve_starting_index)
+				{
+					_device->SetDepthStencilSurface(nullptr);
+				}
+			}
+			else
+			{
+				if (_clear_idx == _preserve_starting_index)
+				{
+					_device->SetDepthStencilSurface(nullptr);
+				}
+			}
 		}
 	}
 	void runtime_d3d9::after_clear(com_ptr<IDirect3DSurface9> depthstencil)
@@ -450,20 +503,54 @@ namespace reshade::d3d9
 		if (!_preserve_depth_buffer)
 			return;
 
+		D3DSURFACE_DESC desc;
+		depthstencil->GetDesc(&desc);
+
+		if (!_disable_depth_buffer_size_restriction)
+		{
+			if ((desc.Width < _width * 0.95 || desc.Width > _width * 1.05) ||
+				(desc.Height < _height * 0.95 || desc.Height > _height * 1.05))
+			{
+				return;
+			}
+		}
+		else
+		{
+			if (desc.Width < _width * 0.95 ||
+				desc.Height < _height * 0.95)
+			{
+				return;
+			}
+		}
+
+		depth_clearing_info clearing_info = { depthstencil, desc.Width, desc.Height, 0, 0 };
+
 		if (depthstencil == _depthstencil_replacement)
 		{
-			if (_clear_idx >= _preserve_starting_index)
+			if (!_outlast_fix)
 			{
-				_device->SetDepthStencilSurface(depthstencil.get());
+				if (_clear_idx >= _preserve_starting_index)
+				{
+					_device->SetDepthStencilSurface(depthstencil.get());
+				}
+			}
+			else
+			{
+				if (_clear_idx == _preserve_starting_index)
+				{
+					_device->SetDepthStencilSurface(depthstencil.get());
+				}
 			}
 
 			_clear_idx++;
-
-			D3DSURFACE_DESC desc;
-			depthstencil->GetDesc(&desc);
-			const depth_clearing_info clearing_info = { depthstencil, desc.Width, desc.Height, 0, 0 };
 			_depth_clearing_table.emplace(_clear_idx, clearing_info);
+			depthstencil = _depthstencil;
 		}
+
+		clearing_info = { depthstencil, desc.Width, desc.Height, 0, 0 };
+
+		_clear_buffer_idx++;
+		_depth_buffer_table.emplace(_clear_buffer_idx, clearing_info);
 	}
 	void runtime_d3d9::on_set_depthstencil_surface(IDirect3DSurface9 *&depthstencil)
 	{
@@ -472,13 +559,27 @@ namespace reshade::d3d9
 			D3DSURFACE_DESC desc;
 			depthstencil->GetDesc(&desc);
 
-			// TODO: for Vanquish, remove this test
 			// Early rejection
-			if ( desc.MultiSampleType != D3DMULTISAMPLE_NONE ||
-				(desc.Width < _width * 0.95 || desc.Width > _width * 1.05) ||
-				(desc.Height < _height * 0.95 || desc.Height > _height * 1.05))
+			if (desc.MultiSampleType != D3DMULTISAMPLE_NONE)
 			{
 				return;
+			}
+
+			if (!_disable_depth_buffer_size_restriction)
+			{
+				if ((desc.Width < _width * 0.95 || desc.Width > _width * 1.05) ||
+					(desc.Height < _height * 0.95 || desc.Height > _height * 1.05))
+				{
+					return;
+				}
+			}
+			else
+			{
+				if (desc.Width < _width * 0.95 ||
+					desc.Height < _height * 0.95)
+				{
+					return;
+				}
 			}
 	
 			depthstencil->AddRef();
@@ -1331,9 +1432,35 @@ namespace reshade::d3d9
 				_depthstencil = nullptr;
 			}
 
-			for (const auto &it : _depth_source_table)
+			if (ImGui::Checkbox("Disable the depth buffer size restriction", &_disable_depth_buffer_size_restriction))
 			{
-				ImGui::Text("%s0x%p | %u draw calls ==> %u vertices", (it.first == _depthstencil ? "> " : "  "), it.first, it.second.drawcall_count, it.second.vertices_count);
+				runtime::save_config();
+
+				// Force depth-stencil replacement recreation
+				_depthstencil = nullptr;
+			}
+
+			if (ImGui::Checkbox("Outlast fix", &_outlast_fix))
+			{
+				runtime::save_config();
+
+				// Force depth-stencil replacement recreation
+				_depthstencil = nullptr;
+			}
+
+			if (!_preserve_depth_buffer)
+			{
+				for (const auto &it : _depth_source_table)
+				{
+					ImGui::Text("%s0x%p | %u draw calls ==> %u vertices", (it.first == _depthstencil ? "> " : "  "), it.first, it.second.drawcall_count, it.second.vertices_count);
+				}
+			}
+			else
+			{
+				for (const auto &it : _depth_buffer_table)
+				{
+					ImGui::Text("%s0x%p | %ux%u : %u draw calls ==> %u vertices", (it.first == _preserve_selected_index ? "> " : "  "), it.second.depthstencil, it.second.width, it.second.height, it.second.drawcall_count, it.second.vertices_count);
+				}
 			}
 
 			ImGui::Spacing();
@@ -1360,38 +1487,60 @@ namespace reshade::d3d9
 		depth_source_info best_info = { 0 };
 		IDirect3DSurface9 *best_match = nullptr;
 
-		for (auto it = _depth_source_table.begin(); it != _depth_source_table.end();)
+		if (!_preserve_depth_buffer || _depth_buffer_table.empty())
 		{
-			const auto depthstencil = it->first;
-			auto &depthstencil_info = it->second;
-
-			if ((depthstencil->AddRef(), depthstencil->Release()) == 1)
+			for (auto it = _depth_source_table.begin(); it != _depth_source_table.end();)
 			{
-				depthstencil->Release();
+				const auto depthstencil = it->first;
+				auto &depthstencil_info = it->second;
 
-				it = _depth_source_table.erase(it);
-				continue;
+				if ((depthstencil->AddRef(), depthstencil->Release()) == 1)
+				{
+					depthstencil->Release();
+
+					it = _depth_source_table.erase(it);
+					continue;
+				}
+				else
+				{
+					++it;
+				}
+
+				if (depthstencil_info.drawcall_count == 0)
+				{
+					if (!_preserve_depth_buffer)
+					{
+						continue;
+					}
+				}
+
+				if ((depthstencil_info.vertices_count * (1.2f - float(depthstencil_info.drawcall_count) / _drawcalls)) >= (best_info.vertices_count * (1.2f - float(best_info.drawcall_count) / _drawcalls)))
+				{
+					best_match = depthstencil;
+					best_info = depthstencil_info;
+				}
+
+				depthstencil_info.drawcall_count = depthstencil_info.vertices_count = 0;
 			}
-			else
+		}
+		else
+		{
+			int vertices = 0;
+			int drawcalls = 0;
+
+			for (const auto &it : _depth_buffer_table)
 			{
-				++it;
+				if (it.second.vertices_count > vertices)
+				{
+					_preserve_selected_index = it.first;
+					best_match = it.second.depthstencil.get();
+					vertices = it.second.vertices_count;
+					drawcalls = it.second.drawcall_count;
+				}
 			}
-
-			if (depthstencil_info.drawcall_count == 0)
-			{
-				continue;
-			}
-
-			if ((depthstencil_info.vertices_count * (1.2f - float(depthstencil_info.drawcall_count) / _drawcalls)) >= (best_info.vertices_count * (1.2f - float(best_info.drawcall_count) / _drawcalls)))
-			{
-				best_match = depthstencil;
-				best_info = depthstencil_info;
-			}
-
-			depthstencil_info.drawcall_count = depthstencil_info.vertices_count = 0;
 		}
 
-		if (best_match != nullptr && _depthstencil != best_match)
+		if (best_match != nullptr && (_depthstencil != best_match))
 		{
 			create_depthstencil_replacement(best_match);
 		}
@@ -1451,7 +1600,7 @@ namespace reshade::d3d9
 
 					if (current_depthstencil != nullptr)
 					{
-						if (_preserve_depth_buffer || current_depthstencil == _depthstencil)
+						if (current_depthstencil == _depthstencil)
 						{
 							_device->SetDepthStencilSurface(_depthstencil_replacement.get());
 						}

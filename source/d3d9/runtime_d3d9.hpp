@@ -104,16 +104,23 @@ namespace reshade::d3d9
 		UINT _num_simultaneous_rendertargets;
 		bool _disable_intz = false;
 		bool _preserve_depth_buffer = false;
+		bool _outlast_fix = false;
+		bool _disable_depth_buffer_size_restriction = false;
 		UINT _preserve_starting_index = 0;
+		UINT _preserve_selected_index = 0;
 		bool _is_multisampling_enabled = false;
+		int _clear_buffer_idx = 0;
 		int _clear_idx = 0;
-		int _imax_clear_idx = 0;
+		int _db_vertices = 0;
+		int _db_drawcalls = 0;
+		bool _first_draw = true;
 		D3DFORMAT _backbuffer_format = D3DFMT_UNKNOWN;
 		com_ptr<IDirect3DStateBlock9> _app_state;
 		com_ptr<IDirect3DSurface9> _depthstencil;
 		com_ptr<IDirect3DSurface9> _depthstencil_replacement;
 		com_ptr<IDirect3DSurface9> _default_depthstencil;
 		std::unordered_map<IDirect3DSurface9 *, depth_source_info> _depth_source_table;
+		std::map<int, depth_clearing_info> _depth_buffer_table;
 		std::map<int, depth_clearing_info> _depth_clearing_table;
 
 		com_ptr<IDirect3DVertexBuffer9> _effect_triangle_buffer;
