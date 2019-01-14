@@ -100,13 +100,15 @@ namespace reshade::d3d9
 			config.get("DX9_BUFFER_DETECTION", "DisableINTZ", _disable_intz);
 			config.get("DX9_BUFFER_DETECTION", "PreserveDepthBuffer", _preserve_depth_buffer);
 			config.get("DX9_BUFFER_DETECTION", "DisableDepthBufferSizeRestriction", _disable_depth_buffer_size_restriction);
-			config.get("DX9_BUFFER_DETECTION", "OutlastFix", _outlast_fix);
+			config.get("DX9_BUFFER_DETECTION", "PreserveDepthBufferIndex", _preserve_starting_index);
+			if (_preserve_selected_index < 0)
+				_auto_preserve = true;
 		});
 		subscribe_to_save_config([this](ini_file& config) {
 			config.set("DX9_BUFFER_DETECTION", "DisableINTZ", _disable_intz);
 			config.set("DX9_BUFFER_DETECTION", "PreserveDepthBuffer", _preserve_depth_buffer);
 			config.set("DX9_BUFFER_DETECTION", "DisableDepthBufferSizeRestriction", _disable_depth_buffer_size_restriction);
-			config.set("DX9_BUFFER_DETECTION", "OutlastFix", _outlast_fix);
+			config.set("DX9_BUFFER_DETECTION", "PreserveDepthBufferIndex", _preserve_starting_index);
 		});
 	}
 	runtime_d3d9::~runtime_d3d9()
@@ -363,11 +365,11 @@ namespace reshade::d3d9
 
 		if (_preserve_depth_buffer)
 		{
-			int vertices = 0;
-			int drawcalls = 0;
-
-			if (!_outlast_fix)
+			if (_auto_preserve)
 			{
+				int vertices = 0;
+				int drawcalls = 0;
+
 				for (const auto &it : _depth_clearing_table)
 				{
 					if (it.second.vertices_count > vertices)
@@ -462,37 +464,12 @@ namespace reshade::d3d9
 		if (!_preserve_depth_buffer)
 			return;
 
-		if (depthstencil == _depthstencil_replacement)
+		if (depthstencil != _depthstencil_replacement)
+			return;
+
+		if (_clear_idx >= _preserve_starting_index)
 		{
-			if (_outlast_fix)
-			{
-				const auto it = _depth_clearing_table.find(_clear_idx);
-
-				if (it != _depth_clearing_table.end())
-				{
-					if (it->second.vertices_count > _db_vertices)
-					{
-						_preserve_starting_index = it->first;
-						_db_vertices = it->second.vertices_count;
-						_db_drawcalls = it->second.drawcall_count;
-					}
-				}
-			}
-
-			if (!_outlast_fix)
-			{
-				if (_clear_idx >= _preserve_starting_index)
-				{
-					_device->SetDepthStencilSurface(nullptr);
-				}
-			}
-			else
-			{
-				if (_clear_idx == _preserve_starting_index)
-				{
-					_device->SetDepthStencilSurface(nullptr);
-				}
-			}
+			_device->SetDepthStencilSurface(nullptr);
 		}
 	}
 	void runtime_d3d9::after_clear(com_ptr<IDirect3DSurface9> depthstencil)
@@ -527,19 +504,9 @@ namespace reshade::d3d9
 
 		if (depthstencil == _depthstencil_replacement)
 		{
-			if (!_outlast_fix)
+			if (_clear_idx >= _preserve_starting_index)
 			{
-				if (_clear_idx >= _preserve_starting_index)
-				{
-					_device->SetDepthStencilSurface(depthstencil.get());
-				}
-			}
-			else
-			{
-				if (_clear_idx == _preserve_starting_index)
-				{
-					_device->SetDepthStencilSurface(depthstencil.get());
-				}
+				_device->SetDepthStencilSurface(depthstencil.get());
 			}
 
 			_clear_idx++;
@@ -1440,14 +1407,6 @@ namespace reshade::d3d9
 				_depthstencil = nullptr;
 			}
 
-			if (ImGui::Checkbox("Outlast fix", &_outlast_fix))
-			{
-				runtime::save_config();
-
-				// Force depth-stencil replacement recreation
-				_depthstencil = nullptr;
-			}
-
 			if (!_preserve_depth_buffer)
 			{
 				for (const auto &it : _depth_source_table)
@@ -1465,9 +1424,45 @@ namespace reshade::d3d9
 
 			ImGui::Spacing();
 
+			bool modified = false;
+
+			if (ImGui::Checkbox("Auto preserve", &_auto_preserve))
+			{
+				if(_auto_preserve)
+					_preserve_starting_index = -1;
+				modified = true;
+			}
+			ImGui::Spacing();
 			for (const auto &it : _depth_clearing_table)
 			{
-				ImGui::Text("%s0x%p | %ux%u : %u draw calls ==> %u vertices", (it.first == _preserve_starting_index ? "> " : "  "), it.second.depthstencil, it.second.width, it.second.height, it.second.drawcall_count, it.second.vertices_count);
+				char label[512] = "";
+				sprintf_s(label, "%s%2u", (it.first == _preserve_starting_index ? "> " : "  "), it.first);
+
+				if (!_auto_preserve)
+				{
+					if (bool value = (_preserve_starting_index == it.first && !_auto_preserve); ImGui::Checkbox(label, &value))
+					{
+						_preserve_starting_index = value ? it.first : -1;
+						modified = true;
+					}
+				}
+				else
+				{
+					ImGui::Text("%s", label);
+				}
+
+				ImGui::SameLine();
+
+				ImGui::Text("0x%p | %ux%u : %u draw calls ==> %u vertices", it.second.depthstencil, it.second.width, it.second.height, it.second.drawcall_count, it.second.vertices_count);
+				ImGui::Spacing();
+			}
+
+			if (modified)
+			{
+				runtime::save_config();
+
+				// Force depth-stencil replacement recreation
+				_depthstencil = nullptr;
 			}
 		}
 	}

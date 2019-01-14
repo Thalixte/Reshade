@@ -104,10 +104,10 @@ namespace reshade::d3d9
 		UINT _num_simultaneous_rendertargets;
 		bool _disable_intz = false;
 		bool _preserve_depth_buffer = false;
-		bool _outlast_fix = false;
 		bool _disable_depth_buffer_size_restriction = false;
-		UINT _preserve_starting_index = 0;
+		int _preserve_starting_index = 0;
 		UINT _preserve_selected_index = 0;
+		bool _auto_preserve = true;
 		bool _is_multisampling_enabled = false;
 		int _clear_buffer_idx = 0;
 		int _clear_idx = 0;
