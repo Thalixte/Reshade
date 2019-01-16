@@ -101,14 +101,14 @@ namespace reshade::d3d9
 			config.get("DX9_BUFFER_DETECTION", "PreserveDepthBuffer", _preserve_depth_buffer);
 			config.get("DX9_BUFFER_DETECTION", "DisableDepthBufferSizeRestriction", _disable_depth_buffer_size_restriction);
 			config.get("DX9_BUFFER_DETECTION", "PreserveDepthBufferIndex", _preserve_starting_index);
-			if (_preserve_selected_index < 0)
-				_auto_preserve = true;
+			config.get("DX9_BUFFER_DETECTION", "AutoPreserve", _auto_preserve);
 		});
 		subscribe_to_save_config([this](ini_file& config) {
 			config.set("DX9_BUFFER_DETECTION", "DisableINTZ", _disable_intz);
 			config.set("DX9_BUFFER_DETECTION", "PreserveDepthBuffer", _preserve_depth_buffer);
 			config.set("DX9_BUFFER_DETECTION", "DisableDepthBufferSizeRestriction", _disable_depth_buffer_size_restriction);
 			config.set("DX9_BUFFER_DETECTION", "PreserveDepthBufferIndex", _preserve_starting_index);
+			config.set("DX9_BUFFER_DETECTION", "AutoPreserve", _auto_preserve);
 		});
 	}
 	runtime_d3d9::~runtime_d3d9()
@@ -129,12 +129,12 @@ namespace reshade::d3d9
 		{
 			switch (_backbuffer_format)
 			{
-				case D3DFMT_X8R8G8B8:
-					_backbuffer_format = D3DFMT_A8R8G8B8;
-					break;
-				case D3DFMT_X8B8G8R8:
-					_backbuffer_format = D3DFMT_A8B8G8R8;
-					break;
+			case D3DFMT_X8R8G8B8:
+				_backbuffer_format = D3DFMT_A8R8G8B8;
+				break;
+			case D3DFMT_X8B8G8R8:
+				_backbuffer_format = D3DFMT_A8B8G8R8;
+				break;
 			}
 
 			hr = _device->CreateRenderTarget(_width, _height, _backbuffer_format, D3DMULTISAMPLE_NONE, 0, FALSE, &_backbuffer_resolved, nullptr);
@@ -372,7 +372,7 @@ namespace reshade::d3d9
 
 				for (const auto &it : _depth_clearing_table)
 				{
-					if (it.second.vertices_count > vertices)
+					if (it.second.drawcall_count > drawcalls)
 					{
 						_preserve_starting_index = it.first;
 						vertices = it.second.vertices_count;
@@ -383,10 +383,23 @@ namespace reshade::d3d9
 
 			_device->SetDepthStencilSurface(_depthstencil_replacement.get());
 			_device->Clear(0, nullptr, D3DCLEAR_ZBUFFER, 0, 1.0f, 0);
+
+			for (auto &it : _depth_clearing_table)
+			{
+				it.second.vertices_count = 0;
+				it.second.drawcall_count = 0;
+			}
+
 			_clear_buffer_idx = 0;
 			_clear_idx = 0;
 			_db_vertices = 0;
 			_db_drawcalls = 0;
+
+			_depth_buffer_table.clear();
+			// _depth_clearing_table.clear();
+		}
+		else
+		{
 			_depth_buffer_table.clear();
 			_depth_clearing_table.clear();
 		}
@@ -395,19 +408,19 @@ namespace reshade::d3d9
 	{
 		switch (type)
 		{
-			case D3DPT_LINELIST:
-				vertices *= 2;
-				break;
-			case D3DPT_LINESTRIP:
-				vertices += 1;
-				break;
-			case D3DPT_TRIANGLELIST:
-				vertices *= 3;
-				break;
-			case D3DPT_TRIANGLESTRIP:
-			case D3DPT_TRIANGLEFAN:
-				vertices += 2;
-				break;
+		case D3DPT_LINELIST:
+			vertices *= 2;
+			break;
+		case D3DPT_LINESTRIP:
+			vertices += 1;
+			break;
+		case D3DPT_TRIANGLELIST:
+			vertices *= 3;
+			break;
+		case D3DPT_TRIANGLESTRIP:
+		case D3DPT_TRIANGLEFAN:
+			vertices += 2;
+			break;
 		}
 
 		_vertices += vertices;
@@ -418,6 +431,29 @@ namespace reshade::d3d9
 
 		if (depthstencil != nullptr)
 		{
+			D3DSURFACE_DESC desc;
+			depthstencil->GetDesc(&desc);
+
+			if (_preserve_depth_buffer)
+			{
+				if (!_disable_depth_buffer_size_restriction)
+				{
+					if ((desc.Width < _width * 0.95 || desc.Width > _width * 1.05) ||
+						(desc.Height < _height * 0.95 || desc.Height > _height * 1.05))
+					{
+						return;
+					}
+				}
+				else
+				{
+					if (desc.Width < _width * 0.95 ||
+						desc.Height < _height * 0.95)
+					{
+						return;
+					}
+				}
+			}
+
 			if (depthstencil == _depthstencil_replacement)
 			{
 				const auto it2 = _depth_clearing_table.find(_clear_idx);
@@ -453,6 +489,8 @@ namespace reshade::d3d9
 					it->second.drawcall_count++;
 					it->second.vertices_count += vertices;
 				}
+
+				depthstencil = _depthstencil_replacement;
 			}
 		}
 	}
@@ -467,7 +505,7 @@ namespace reshade::d3d9
 		if (depthstencil != _depthstencil_replacement)
 			return;
 
-		if (_clear_idx >= _preserve_starting_index)
+		if (_clear_idx >= _preserve_starting_index || _preserve_starting_index < 0)
 		{
 			_device->SetDepthStencilSurface(nullptr);
 		}
@@ -504,7 +542,7 @@ namespace reshade::d3d9
 
 		if (depthstencil == _depthstencil_replacement)
 		{
-			if (_clear_idx >= _preserve_starting_index)
+			if (_clear_idx >= _preserve_starting_index || _preserve_starting_index < 0)
 			{
 				_device->SetDepthStencilSurface(depthstencil.get());
 			}
@@ -1428,7 +1466,7 @@ namespace reshade::d3d9
 
 			if (ImGui::Checkbox("Auto preserve", &_auto_preserve))
 			{
-				if(_auto_preserve)
+				if (_auto_preserve)
 					_preserve_starting_index = -1;
 				modified = true;
 			}
