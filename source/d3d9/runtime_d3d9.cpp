@@ -98,6 +98,7 @@ namespace reshade::d3d9
 #endif
 		subscribe_to_load_config([this](const ini_file& config) {
 			config.get("DX9_BUFFER_DETECTION", "DisableINTZ", _disable_intz);
+			config.get("DX9_BUFFER_DETECTION", "BruteForceDepthBuffer", _brute_force_depth_buffer);
 			// add an option to switch to the new depth buffer detection mode, which tries to preserve the depth buffer
 			config.get("DX9_BUFFER_DETECTION", "PreserveDepthBuffer", _preserve_depth_buffer);
 			// add an option to disable the depth buffer size rejection, if this size is greater than the actual viewport
@@ -119,6 +120,7 @@ namespace reshade::d3d9
 		});
 		subscribe_to_save_config([this](ini_file& config) {
 			config.set("DX9_BUFFER_DETECTION", "DisableINTZ", _disable_intz);
+			config.set("DX9_BUFFER_DETECTION", "BruteForceDepthBuffer", _brute_force_depth_buffer);
 			config.set("DX9_BUFFER_DETECTION", "PreserveDepthBuffer", _preserve_depth_buffer);
 			config.set("DX9_BUFFER_DETECTION", "DisableDepthBufferSizeRestriction", _disable_depth_buffer_size_restriction);
 			config.set("DX9_BUFFER_DETECTION", "PreserveDepthBufferIndex", _preserve_starting_index);
@@ -276,6 +278,8 @@ namespace reshade::d3d9
 		_depthstencil.reset();
 		_depthstencil_replacement.reset();
 		_depthstencil_texture.reset();
+		_brute_force_depthstencil_replacement.reset();
+		_brute_force_depthstencil_texture.reset();
 
 		_default_depthstencil.reset();
 
@@ -299,6 +303,14 @@ namespace reshade::d3d9
 
 		// reset the new tables
 		_depth_buffer_table.clear();
+
+		if (!_depth_buffer_table.empty())
+		{
+			for (auto &it : _depth_buffer_table)
+			{
+				it.second.depthstencil.reset();
+			}
+		}
 
 		if (!_depth_clearing_table.empty())
 		{
@@ -421,6 +433,12 @@ namespace reshade::d3d9
 		// End post processing
 		_device->EndScene();
 
+		if (_brute_force_depth_buffer)
+		{
+			_device->SetDepthStencilSurface(_brute_force_depthstencil_replacement.get());
+			_device->Clear(0, nullptr, D3DCLEAR_ZBUFFER, 0, 1.0f, 0);
+		}
+
 		if(_preserve_depth_buffer)
 		{
 			_clear_buffer_idx = 0;
@@ -457,8 +475,10 @@ namespace reshade::d3d9
 			_depth_clearing_table.clear();
 		}
 	}
-	void runtime_d3d9::on_draw_call(D3DPRIMITIVETYPE type, UINT vertices)
+	bool runtime_d3d9::on_draw_call(D3DPRIMITIVETYPE type, UINT vertices)
 	{
+		bool bresult = true;
+
 		switch (type)
 		{
 			case D3DPT_LINELIST:
@@ -489,6 +509,8 @@ namespace reshade::d3d9
 				// for the next tables, we need to get back to the original depthstencil ref
 				depthstencil = _depthstencil;
 			}
+			else
+				bresult = false;
 
 			if (!_preserve_depth_buffer)
 			{
@@ -509,6 +531,10 @@ namespace reshade::d3d9
 				depthstencil = get_depthstencil_replacement();
 			}
 		}
+		else
+			bresult = false;
+
+		return bresult;
 	}
 	void runtime_d3d9::before_clear(com_ptr<IDirect3DSurface9> depthstencil)
 	{
@@ -1485,6 +1511,9 @@ namespace reshade::d3d9
 				// Force depth-stencil clearing table recreation
 				_depth_buffer_table.clear();
 				_depth_clearing_table.clear();
+				_brute_force_depth_buffer = false;
+				_brute_force_depthstencil_replacement.reset();
+				_brute_force_depthstencil_texture.reset();
 			}
 
 			ImGui::Spacing();
@@ -1492,6 +1521,16 @@ namespace reshade::d3d9
 
 			if (!_preserve_depth_buffer)
 			{
+				if (ImGui::Checkbox("Brute force depth buffer retrieval", &_brute_force_depth_buffer))
+				{
+					runtime::save_config();
+
+					// Force depth-stencil replacement recreation
+					_depthstencil = nullptr;
+				}
+
+				ImGui::Spacing();
+
 				if (ImGui::Checkbox("Disable replacement with INTZ format", &_disable_intz))
 				{
 					runtime::save_config();
@@ -1698,6 +1737,12 @@ namespace reshade::d3d9
 		_depthstencil_replacement.reset();
 		_depthstencil_texture.reset();
 
+		if (_brute_force_depth_buffer)
+		{
+			_brute_force_depthstencil_replacement.reset();
+			_brute_force_depthstencil_texture.reset();
+		}
+
 		if (depthstencil != nullptr)
 		{
 			D3DSURFACE_DESC desc;
@@ -1713,11 +1758,19 @@ namespace reshade::d3d9
 				// new readable depth buffer texture creation
 				_depthstencil_texture = create_depthstencil_texture(_depthstencil);
 
+				if (_brute_force_depth_buffer)
+					_brute_force_depthstencil_texture = create_depthstencil_texture(depthstencil);
+
 				if (_depthstencil_texture == nullptr)
 					return false;
 
-				// new readable depth buffer surface creation
+				if (_brute_force_depth_buffer && _brute_force_depthstencil_texture == nullptr)
+					return false;
+
 				_depthstencil_texture->GetSurfaceLevel(0, &_depthstencil_replacement);
+
+				if (_brute_force_depth_buffer)
+					_brute_force_depthstencil_texture->GetSurfaceLevel(0, &_brute_force_depthstencil_replacement);
 
 				// Update auto depth stencil
 				com_ptr<IDirect3DSurface9> current_depthstencil;
@@ -1736,13 +1789,27 @@ namespace reshade::d3d9
 			{
 				_depthstencil_replacement = _depthstencil;
 
-				const HRESULT hr = _depthstencil_replacement->GetContainer(IID_PPV_ARGS(&_depthstencil_texture));
+				HRESULT hr = _depthstencil_replacement->GetContainer(IID_PPV_ARGS(&_depthstencil_texture));
 
 				if (FAILED(hr))
 				{
 					LOG(ERROR) << "Failed to retrieve texture from depth surface! HRESULT is '" << std::hex << hr << std::dec << "'.";
 
 					return false;
+				}
+
+				if (_brute_force_depth_buffer)
+				{
+					_brute_force_depthstencil_replacement = _depthstencil;
+
+					 hr = _brute_force_depthstencil_replacement->GetContainer(IID_PPV_ARGS(&_brute_force_depthstencil_texture));
+
+					if (FAILED(hr))
+					{
+						LOG(ERROR) << "Failed to retrieve brute force texture from depth surface! HRESULT is '" << std::hex << hr << std::dec << "'.";
+
+						return false;
+					}
 				}
 			}
 
@@ -1827,10 +1894,13 @@ namespace reshade::d3d9
 	{
 		const auto it = _depth_clearing_table.find(_clear_idx);
 
-		if (it != _depth_clearing_table.end())
+		if (_brute_force_depth_buffer)
+			return _brute_force_depthstencil_texture;
+		else if (it != _depth_clearing_table.end())
 		{
 			return it->second.depthtexture;
 		}
+
 		return _depthstencil_texture;
 	}
 

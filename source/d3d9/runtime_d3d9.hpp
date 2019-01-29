@@ -45,7 +45,7 @@ namespace reshade::d3d9
 		bool on_init(const D3DPRESENT_PARAMETERS &pp);
 		void on_reset();
 		void on_present();
-		void on_draw_call(D3DPRIMITIVETYPE type, UINT count);
+		bool on_draw_call(D3DPRIMITIVETYPE type, UINT count);
 		void on_set_depthstencil_surface(IDirect3DSurface9 *&depthstencil);
 		void on_get_depthstencil_surface(IDirect3DSurface9 *&depthstencil);
 		void before_clear(com_ptr<IDirect3DSurface9> depthstencil);
@@ -59,6 +59,11 @@ namespace reshade::d3d9
 
 		void render_technique(const technique &technique) override;
 
+		/// <summary>
+		/// Return the enabling state of the wireframe mode
+		/// </summary>
+		bool brute_force_depth_buffer() const { return _brute_force_depth_buffer; }
+
 		com_ptr<IDirect3D9> _d3d;
 		com_ptr<IDirect3DDevice9> _device;
 		com_ptr<IDirect3DSwapChain9> _swapchain;
@@ -67,7 +72,12 @@ namespace reshade::d3d9
 		com_ptr<IDirect3DSurface9> _backbuffer_resolved;
 		com_ptr<IDirect3DTexture9> _backbuffer_texture;
 		com_ptr<IDirect3DSurface9> _backbuffer_texture_surface;
+		com_ptr<IDirect3DSurface9> _brute_force_depthstencil_replacement;
 		com_ptr<IDirect3DTexture9> _depthstencil_texture;
+		com_ptr<IDirect3DTexture9> _brute_force_depthstencil_texture;
+		com_ptr<IDirect3DSurface9> _depthstencil;
+		com_ptr<IDirect3DSurface9> _depthstencil_replacement;
+		com_ptr<IDirect3DSurface9> get_depthstencil_replacement();
 
 	private:
 		struct depth_source_info
@@ -98,7 +108,6 @@ namespace reshade::d3d9
 		bool init_technique(technique &info, const d3d9_technique_data &technique_init, const std::unordered_map<std::string, com_ptr<IDirect3DVertexShader9>> &vs_entry_points, const std::unordered_map<std::string, com_ptr<IDirect3DPixelShader9>> &ps_entry_points);
 
 		com_ptr<IDirect3DTexture9> create_depthstencil_texture(com_ptr<IDirect3DSurface9> depthstencil);
-		com_ptr<IDirect3DSurface9> get_depthstencil_replacement();
 		com_ptr<IDirect3DTexture9> get_depthstencil_texture();
 		int get_best_preserve_starting_index(bool multi);
 		bool check_depthstencil_size(com_ptr<IDirect3DSurface9> depthstencil);
@@ -134,10 +143,10 @@ namespace reshade::d3d9
 		int _db_drawcalls = 0;
 		int _previous_best_vertices = 0;
 		int _previous_best_drawcalls = 0;
+		bool _first_draw = true;
+		bool _brute_force_depth_buffer = false;
 		D3DFORMAT _backbuffer_format = D3DFMT_UNKNOWN;
 		com_ptr<IDirect3DStateBlock9> _app_state;
-		com_ptr<IDirect3DSurface9> _depthstencil;
-		com_ptr<IDirect3DSurface9> _depthstencil_replacement;
 		com_ptr<IDirect3DSurface9> _default_depthstencil;
 		std::unordered_map<IDirect3DSurface9 *, depth_source_info> _depth_source_table;
 		std::map<int, depth_buffer_info> _depth_buffer_table;

@@ -630,8 +630,9 @@ HRESULT STDMETHODCALLTYPE Direct3DDevice9::DrawPrimitive(D3DPRIMITIVETYPE Primit
 {
 	assert(_implicit_swapchain != nullptr);
 	assert(_implicit_swapchain->_runtime != nullptr);
+	HRESULT hr = S_OK;
 
-	_implicit_swapchain->_runtime->on_draw_call(PrimitiveType, PrimitiveCount);
+	bool bduplicate = _implicit_swapchain->_runtime->on_draw_call(PrimitiveType, PrimitiveCount);
 
 	for (auto swapchain : _additional_swapchains)
 	{
@@ -649,14 +650,34 @@ HRESULT STDMETHODCALLTYPE Direct3DDevice9::DrawPrimitive(D3DPRIMITIVETYPE Primit
 		_orig->SetRenderState(D3DRS_FILLMODE, D3DFILL_SOLID);
 	}
 
-	return _orig->DrawPrimitive(PrimitiveType, StartVertex, PrimitiveCount);
+	if (_implicit_swapchain->_runtime->brute_force_depth_buffer() && bduplicate)
+	{
+		com_ptr<IDirect3DSurface9> current_rendertarget;
+		com_ptr<IDirect3DSurface9> current_depthstencil;
+
+		_orig->GetDepthStencilSurface(&current_depthstencil);
+
+		if (current_depthstencil == _implicit_swapchain->_runtime->_depthstencil || current_depthstencil == _implicit_swapchain->_runtime->get_depthstencil_replacement())
+		{
+			_orig->SetDepthStencilSurface(_implicit_swapchain->_runtime->_brute_force_depthstencil_replacement.get());
+
+			hr = _orig->DrawPrimitive(PrimitiveType, StartVertex, PrimitiveCount);
+
+			_orig->SetDepthStencilSurface(current_depthstencil.get());
+		}
+	}
+
+	hr = _orig->DrawPrimitive(PrimitiveType, StartVertex, PrimitiveCount);
+
+	return hr;
 }
 HRESULT STDMETHODCALLTYPE Direct3DDevice9::DrawIndexedPrimitive(D3DPRIMITIVETYPE PrimitiveType, INT BaseVertexIndex, UINT MinVertexIndex, UINT NumVertices, UINT StartIndex, UINT PrimitiveCount)
 {
 	assert(_implicit_swapchain != nullptr);
 	assert(_implicit_swapchain->_runtime != nullptr);
+	HRESULT hr = S_OK;
 
-	_implicit_swapchain->_runtime->on_draw_call(PrimitiveType, PrimitiveCount);
+	bool bduplicate = _implicit_swapchain->_runtime->on_draw_call(PrimitiveType, PrimitiveCount);
 
 	for (auto swapchain : _additional_swapchains)
 	{
@@ -674,14 +695,34 @@ HRESULT STDMETHODCALLTYPE Direct3DDevice9::DrawIndexedPrimitive(D3DPRIMITIVETYPE
 		_orig->SetRenderState(D3DRS_FILLMODE, D3DFILL_SOLID);
 	}
 
-	return _orig->DrawIndexedPrimitive(PrimitiveType, BaseVertexIndex, MinVertexIndex, NumVertices, StartIndex, PrimitiveCount);
+	if (_implicit_swapchain->_runtime->brute_force_depth_buffer() && bduplicate)
+	{
+		com_ptr<IDirect3DSurface9> current_rendertarget;
+		com_ptr<IDirect3DSurface9> current_depthstencil;
+
+		_orig->GetDepthStencilSurface(&current_depthstencil);
+
+		if (current_depthstencil == _implicit_swapchain->_runtime->_depthstencil || current_depthstencil == _implicit_swapchain->_runtime->get_depthstencil_replacement())
+		{
+			_orig->SetDepthStencilSurface(_implicit_swapchain->_runtime->_brute_force_depthstencil_replacement.get());
+
+			hr = _orig->DrawIndexedPrimitive(PrimitiveType, BaseVertexIndex, MinVertexIndex, NumVertices, StartIndex, PrimitiveCount);
+
+			_orig->SetDepthStencilSurface(current_depthstencil.get());
+		}
+	}
+
+	hr = _orig->DrawIndexedPrimitive(PrimitiveType, BaseVertexIndex, MinVertexIndex, NumVertices, StartIndex, PrimitiveCount);
+
+	return hr;
 }
 HRESULT STDMETHODCALLTYPE Direct3DDevice9::DrawPrimitiveUP(D3DPRIMITIVETYPE PrimitiveType, UINT PrimitiveCount, const void *pVertexStreamZeroData, UINT VertexStreamZeroStride)
 {
 	assert(_implicit_swapchain != nullptr);
 	assert(_implicit_swapchain->_runtime != nullptr);
+	HRESULT hr = S_OK;
 
-	_implicit_swapchain->_runtime->on_draw_call(PrimitiveType, PrimitiveCount);
+	bool bduplicate = _implicit_swapchain->_runtime->on_draw_call(PrimitiveType, PrimitiveCount);
 
 	for (auto swapchain : _additional_swapchains)
 	{
@@ -699,14 +740,34 @@ HRESULT STDMETHODCALLTYPE Direct3DDevice9::DrawPrimitiveUP(D3DPRIMITIVETYPE Prim
 		_orig->SetRenderState(D3DRS_FILLMODE, D3DFILL_SOLID);
 	}
 
-	return _orig->DrawPrimitiveUP(PrimitiveType, PrimitiveCount, pVertexStreamZeroData, VertexStreamZeroStride);
+	if (_implicit_swapchain->_runtime->brute_force_depth_buffer() && bduplicate)
+	{
+		com_ptr<IDirect3DSurface9> current_rendertarget;
+		com_ptr<IDirect3DSurface9> current_depthstencil;
+
+		_orig->GetDepthStencilSurface(&current_depthstencil);
+
+		if (current_depthstencil == _implicit_swapchain->_runtime->_depthstencil || current_depthstencil == _implicit_swapchain->_runtime->get_depthstencil_replacement())
+		{
+			_orig->SetDepthStencilSurface(_implicit_swapchain->_runtime->_brute_force_depthstencil_replacement.get());
+
+			hr = _orig->DrawPrimitiveUP(PrimitiveType, PrimitiveCount, pVertexStreamZeroData, VertexStreamZeroStride);
+
+			_orig->SetDepthStencilSurface(current_depthstencil.get());
+		}
+	}
+
+	hr = _orig->DrawPrimitiveUP(PrimitiveType, PrimitiveCount, pVertexStreamZeroData, VertexStreamZeroStride);
+
+	return hr;
 }
 HRESULT STDMETHODCALLTYPE Direct3DDevice9::DrawIndexedPrimitiveUP(D3DPRIMITIVETYPE PrimitiveType, UINT MinVertexIndex, UINT NumVertices, UINT PrimitiveCount, const void *pIndexData, D3DFORMAT IndexDataFormat, const void *pVertexStreamZeroData, UINT VertexStreamZeroStride)
 {
 	assert(_implicit_swapchain != nullptr);
 	assert(_implicit_swapchain->_runtime != nullptr);
+	HRESULT hr = S_OK;
 
-	_implicit_swapchain->_runtime->on_draw_call(PrimitiveType, PrimitiveCount);
+	bool bduplicate = _implicit_swapchain->_runtime->on_draw_call(PrimitiveType, PrimitiveCount);
 
 	for (auto swapchain : _additional_swapchains)
 	{
@@ -724,7 +785,26 @@ HRESULT STDMETHODCALLTYPE Direct3DDevice9::DrawIndexedPrimitiveUP(D3DPRIMITIVETY
 		_orig->SetRenderState(D3DRS_FILLMODE, D3DFILL_SOLID);
 	}
 
-	return _orig->DrawIndexedPrimitiveUP(PrimitiveType, MinVertexIndex, NumVertices, PrimitiveCount, pIndexData, IndexDataFormat, pVertexStreamZeroData, VertexStreamZeroStride);
+	if (_implicit_swapchain->_runtime->brute_force_depth_buffer() && bduplicate)
+	{
+		com_ptr<IDirect3DSurface9> current_rendertarget;
+		com_ptr<IDirect3DSurface9> current_depthstencil;
+
+		_orig->GetDepthStencilSurface(&current_depthstencil);
+
+		if (current_depthstencil == _implicit_swapchain->_runtime->_depthstencil || current_depthstencil == _implicit_swapchain->_runtime->get_depthstencil_replacement())
+		{
+			_orig->SetDepthStencilSurface(_implicit_swapchain->_runtime->_brute_force_depthstencil_replacement.get());
+
+			hr = _orig->DrawIndexedPrimitiveUP(PrimitiveType, MinVertexIndex, NumVertices, PrimitiveCount, pIndexData, IndexDataFormat, pVertexStreamZeroData, VertexStreamZeroStride);
+
+			_orig->SetDepthStencilSurface(current_depthstencil.get());
+		}
+	}
+
+	hr =  _orig->DrawIndexedPrimitiveUP(PrimitiveType, MinVertexIndex, NumVertices, PrimitiveCount, pIndexData, IndexDataFormat, pVertexStreamZeroData, VertexStreamZeroStride);
+
+	return hr;
 }
 HRESULT STDMETHODCALLTYPE Direct3DDevice9::ProcessVertices(UINT SrcStartIndex, UINT DestIndex, UINT VertexCount, IDirect3DVertexBuffer9 *pDestBuffer, IDirect3DVertexDeclaration9 *pVertexDecl, DWORD Flags)
 {
