@@ -1511,6 +1511,7 @@ namespace reshade::d3d9
 
 				// Force depth-stencil replacement recreation
 				_depthstencil = nullptr;
+				_depthstencil_replacement = nullptr;
 				// Force depth-stencil clearing table recreation
 				_depth_buffer_table.clear();
 				_depth_clearing_table.clear();
@@ -1524,6 +1525,7 @@ namespace reshade::d3d9
 
 					// Force depth-stencil replacement recreation
 					_depthstencil = nullptr;
+					_depthstencil_replacement = nullptr;
 					// Force depth-stencil clearing table recreation
 					_depth_buffer_table.clear();
 					_depth_clearing_table.clear();
@@ -1555,6 +1557,7 @@ namespace reshade::d3d9
 					runtime::save_config();
 					// Force depth-stencil replacement recreation
 					_depthstencil = nullptr;
+					_depthstencil_replacement = nullptr;
 					// Force depth-stencil clearing table recreation
 					_depth_buffer_table.clear();
 					_depth_clearing_table.clear();
@@ -1569,6 +1572,7 @@ namespace reshade::d3d9
 
 						// Force depth-stencil replacement recreation
 						_depthstencil = nullptr;
+						_depthstencil_replacement = nullptr;
 						// Force depth-stencil clearing table recreation
 						_depth_buffer_table.clear();
 						_depth_clearing_table.clear();
@@ -1580,6 +1584,7 @@ namespace reshade::d3d9
 
 						// Force depth-stencil replacement recreation
 						_depthstencil = nullptr;
+						_depthstencil_replacement = nullptr;
 						// Force depth-stencil clearing table recreation
 						_depth_buffer_table.clear();
 						_depth_clearing_table.clear();
