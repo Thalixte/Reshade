@@ -597,6 +597,9 @@ namespace reshade::d3d9
 			if (_preserve_drawcalls > 0 || _preserve_vertices > 0)
 				// go to the next clearing index
 				_clear_idx++;
+
+			// the current depthstencil surface is set to this new depth buffer replacement surface
+			_device->SetDepthStencilSurface(get_depthstencil_replacement().get());
 			// for the next tables, we need to get back to the original depthstencil ref
 			depthstencil = _depthstencil;
 		}		
@@ -610,9 +613,6 @@ namespace reshade::d3d9
 			// keep trace of the counters for the next clerance step for the original depthstencil ref
 			_depth_buffer_table.emplace(_clear_buffer_idx, buffer_info);
 		}
-
-		// the current depthstencil surface is set to this new depth buffer replacement surface
-		_device->SetDepthStencilSurface(get_depthstencil_replacement().get());
 
 		_preserve_drawcalls = 0;
 		_preserve_vertices = 0;
