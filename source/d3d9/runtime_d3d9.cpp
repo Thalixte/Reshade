@@ -442,7 +442,7 @@ namespace reshade::d3d9
 		if(_preserve_depth_buffer)
 		{
 			_clear_buffer_idx = 0;
-			_clear_idx = 0;
+			_clear_idx = -1;
 			_db_vertices = 0;
 			_db_drawcalls = 0;
 
@@ -468,6 +468,10 @@ namespace reshade::d3d9
 			}
 
 			_depth_buffer_table.clear();
+
+			// move to the first clearing index in the depth clearing table, or create it if the table is empty
+			select_next_depthstencil_replacement(get_depthstencil_replacement());
+			_clear_idx++;
 		}
 		else
 		{
@@ -1757,7 +1761,7 @@ namespace reshade::d3d9
 
 				if (current_depthstencil != nullptr)
 				{
-					if (_preserve_depth_buffer || current_depthstencil == _depthstencil)
+					if (current_depthstencil == _depthstencil)
 					{
 						// same as previous releases
 						_device->SetDepthStencilSurface(_depthstencil_replacement.get());
@@ -1790,13 +1794,6 @@ namespace reshade::d3d9
 						return false;
 					}
 				}
-			}
-
-			if (_preserve_depth_buffer)
-			{
-				// add the first depth buffer texture replacement ref in the depth clearing table
-				depth_clearing_info clearing_info = { _depthstencil_replacement, _depthstencil_texture, desc.Width, desc.Height, 0, 0 };
-				_depth_clearing_table.emplace(0, clearing_info);
 			}
 		}
 
