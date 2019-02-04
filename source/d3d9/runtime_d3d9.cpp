@@ -584,7 +584,7 @@ namespace reshade::d3d9
 			return;
 
 		// check if we are in the main depth buffer surface
-		if (depthstencil == get_depthstencil_replacement() || depthstencil == _depthstencil)
+		if (depthstencil == get_depthstencil_replacement())
 		{
 			if (is_preserved())
 			{
@@ -610,7 +610,7 @@ namespace reshade::d3d9
 			// keep trace of the counters for the next clerance step for the original depthstencil ref
 			_depth_buffer_table.emplace(_clear_buffer_idx, buffer_info);
 		}
-		
+
 		// the current depthstencil surface is set to this new depth buffer replacement surface
 		_device->SetDepthStencilSurface(get_depthstencil_replacement().get());
 
@@ -1862,7 +1862,7 @@ namespace reshade::d3d9
 
 	bool runtime_d3d9::select_next_depthstencil_replacement(com_ptr<IDirect3DSurface9> depthstencil)
 	{
-		if (depthstencil == nullptr)
+		if (depthstencil == nullptr || depthstencil == _default_depthstencil)
 			return false;
 
 		depth_clearing_info clearing_info;
