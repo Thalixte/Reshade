@@ -1468,15 +1468,8 @@ namespace reshade::d3d9
 			if (ImGui::Checkbox("Preserve depth buffer from being cleared", &_preserve_depth_buffer))
 			{
 				runtime::save_config();
-
-				// Force depth-stencil replacement recreation
-				_depthstencil = nullptr;
-				// Force depth-stencil clearing table recreation
-				_depth_buffer_table.clear();
-				_depth_clearing_table.clear();
-				_brute_force_depth_buffer = false;
-				_brute_force_depthstencil_replacement.reset();
-				_brute_force_depthstencil_texture.reset();
+				init_depthbuffer_detection_var(true);
+				init_brute_force_depthbuffer();
 			}
 
 			ImGui::Spacing();
@@ -1487,9 +1480,7 @@ namespace reshade::d3d9
 				if (ImGui::Checkbox("Brute force depth buffer retrieval", &_brute_force_depth_buffer))
 				{
 					runtime::save_config();
-
-					// Force depth-stencil replacement recreation
-					_depthstencil = nullptr;
+					init_depthbuffer_detection_var();
 				}
 
 				ImGui::Spacing();
@@ -1497,9 +1488,7 @@ namespace reshade::d3d9
 				if (ImGui::Checkbox("Disable replacement with INTZ format", &_disable_intz))
 				{
 					runtime::save_config();
-
-					// Force depth-stencil replacement recreation
-					_depthstencil = nullptr;
+					init_depthbuffer_detection_var();
 				}
 			}
 
@@ -1508,13 +1497,7 @@ namespace reshade::d3d9
 			if (ImGui::Checkbox("Disable the depth buffer size restriction", &_disable_depth_buffer_size_restriction))
 			{
 				runtime::save_config();
-
-				// Force depth-stencil replacement recreation
-				_depthstencil = nullptr;
-				_depthstencil_replacement = nullptr;
-				// Force depth-stencil clearing table recreation
-				_depth_buffer_table.clear();
-				_depth_clearing_table.clear();
+				init_depthbuffer_detection_var(true);
 			}
 
 			if (_preserve_depth_buffer)
@@ -1522,13 +1505,7 @@ namespace reshade::d3d9
 				if (ImGui::Checkbox("multiple depthstencil replacement buffer", &_multi_depthstencil))
 				{
 					runtime::save_config();
-
-					// Force depth-stencil replacement recreation
-					_depthstencil = nullptr;
-					_depthstencil_replacement = nullptr;
-					// Force depth-stencil clearing table recreation
-					_depth_buffer_table.clear();
-					_depth_clearing_table.clear();
+					init_depthbuffer_detection_var(true);
 				}
 
 				ImGui::Spacing();
@@ -1555,12 +1532,7 @@ namespace reshade::d3d9
 					}
 
 					runtime::save_config();
-					// Force depth-stencil replacement recreation
-					_depthstencil = nullptr;
-					_depthstencil_replacement = nullptr;
-					// Force depth-stencil clearing table recreation
-					_depth_buffer_table.clear();
-					_depth_clearing_table.clear();
+					init_depthbuffer_detection_var(true);
 				}
 
 				if (_auto_preserve)
@@ -1569,25 +1541,13 @@ namespace reshade::d3d9
 					{
 						_auto_preserve_on_drawcalls = !_auto_preserve_on_vertices;
 						runtime::save_config();
-
-						// Force depth-stencil replacement recreation
-						_depthstencil = nullptr;
-						_depthstencil_replacement = nullptr;
-						// Force depth-stencil clearing table recreation
-						_depth_buffer_table.clear();
-						_depth_clearing_table.clear();
+						init_depthbuffer_detection_var(true);
 					}
 					if (ImGui::Checkbox("find best depthstencil based on drawcalls", &_auto_preserve_on_drawcalls))
 					{
 						_auto_preserve_on_vertices = !_auto_preserve_on_drawcalls;
 						runtime::save_config();
-
-						// Force depth-stencil replacement recreation
-						_depthstencil = nullptr;
-						_depthstencil_replacement = nullptr;
-						// Force depth-stencil clearing table recreation
-						_depth_buffer_table.clear();
-						_depth_clearing_table.clear();
+						init_depthbuffer_detection_var(true);
 					}
 				}
 
@@ -1624,9 +1584,7 @@ namespace reshade::d3d9
 				if (modified)
 				{
 					runtime::save_config();
-
-					// Force depth-stencil replacement recreation
-					_depthstencil = nullptr;
+					init_depthbuffer_detection_var();
 				}
 			}
 			else
@@ -2027,5 +1985,26 @@ namespace reshade::d3d9
 		return (_clear_idx >= _preserve_starting_index);
 
 		return false;
+	}
+
+	void runtime_d3d9::init_depthbuffer_detection_var(bool clean_db_tables = false)
+	{
+		// Force depth-stencil replacement recreation
+		_depthstencil = nullptr;
+		_depthstencil_replacement = nullptr;
+
+		if (clean_db_tables)
+		{
+			// Force depth-stencil clearing table recreation
+			_depth_buffer_table.clear();
+			_depth_clearing_table.clear();
+		}
+	}
+
+	void runtime_d3d9::init_brute_force_depthbuffer()
+	{
+		_brute_force_depth_buffer = false;
+		_brute_force_depthstencil_replacement.reset();
+		_brute_force_depthstencil_texture.reset();
 	}
 }

@@ -114,6 +114,8 @@ namespace reshade::d3d9
 		int get_best_preserve_starting_index(bool multi);
 		bool check_depthstencil_size(com_ptr<IDirect3DSurface9> depthstencil);
 		bool is_preserved();
+		void init_depthbuffer_detection_var(clean_db_tables);
+		void init_brute_force_depthbuffer();
 
 #if RESHADE_GUI
 		bool init_imgui_resources();
