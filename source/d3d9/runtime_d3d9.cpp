@@ -302,15 +302,6 @@ namespace reshade::d3d9
 		_depth_source_table.clear();
 
 		// reset the new tables
-		_depth_buffer_table.clear();
-
-		if (!_depth_buffer_table.empty())
-		{
-			for (auto &it : _depth_buffer_table)
-			{
-				it.second.depthstencil.reset();
-			}
-		}
 
 		if (!_depth_clearing_table.empty())
 		{
@@ -333,20 +324,12 @@ namespace reshade::d3d9
 
 		if (_preserve_depth_buffer)
 		{
-			const auto it = _depth_buffer_table.find(_clear_buffer_idx);
+			const auto it = _depth_clearing_table.find(_clear_idx);
 
-			if (it != _depth_buffer_table.end())
+			if (it != _depth_clearing_table.end())
 			{
 				it->second.drawcall_count = _preserve_drawcalls;
 				it->second.vertices_count = _preserve_vertices;
-			}
-
-			const auto it2 = _depth_clearing_table.find(_clear_idx);
-
-			if (it2 != _depth_clearing_table.end())
-			{
-				it2->second.drawcall_count = _preserve_drawcalls;
-				it2->second.vertices_count = _preserve_vertices;
 			}
 
 			if (_auto_preserve)
@@ -467,15 +450,12 @@ namespace reshade::d3d9
 				_device->Clear(0, nullptr, D3DCLEAR_ZBUFFER, 0, 1.0f, 0);
 			}
 
-			_depth_buffer_table.clear();
-
 			// move to the first clearing index in the depth clearing table, or create it if the table is empty
-			select_next_depthstencil_replacement(get_depthstencil_replacement());
-			_clear_idx++;
+			if(select_next_depthstencil_replacement(get_depthstencil_replacement()))
+				_clear_idx++;
 		}
 		else
 		{
-			_depth_buffer_table.clear();
 			_depth_clearing_table.clear();
 		}
 	}
@@ -516,18 +496,16 @@ namespace reshade::d3d9
 			else
 				bresult = false;
 
-			if (!_preserve_depth_buffer)
-			{
-				// original depth source table update
-				const auto it = _depth_source_table.find(depthstencil.get());
+			// original depth source table update
+			const auto it = _depth_source_table.find(depthstencil.get());
 
-				if (it != _depth_source_table.end())
-				{
-					it->second.drawcall_count = _drawcalls;
-					it->second.vertices_count += vertices;
-				}
+			if (it != _depth_source_table.end())
+			{
+				it->second.drawcall_count = _drawcalls;
+				it->second.vertices_count += vertices;
 			}
-			else
+
+			if(_preserve_depth_buffer)
 			{
 				_preserve_drawcalls++;
 				_preserve_vertices += vertices;
@@ -546,20 +524,12 @@ namespace reshade::d3d9
 		if (depthstencil == nullptr || !_preserve_depth_buffer || depthstencil != get_depthstencil_replacement())
 			return;
 
-		const auto it = _depth_buffer_table.find(_clear_buffer_idx);
+		const auto it = _depth_clearing_table.find(_clear_idx);
 
-		if (it != _depth_buffer_table.end())
+		if (it != _depth_clearing_table.end())
 		{
 			it->second.drawcall_count = _preserve_drawcalls;
 			it->second.vertices_count = _preserve_vertices;
-		}
-
-		const auto it2 = _depth_clearing_table.find(_clear_idx);
-
-		if (it2 != _depth_clearing_table.end())
-		{
-			it2->second.drawcall_count = _preserve_drawcalls;
-			it2->second.vertices_count = _preserve_vertices;
 		}
 
 		if (_auto_preserve && _multi_depthstencil)
@@ -567,9 +537,6 @@ namespace reshade::d3d9
 			// when multiple depth buffer textures are set (one per depth buffer clearance), redefine the best depth buffer clearing instance
 			_preserve_starting_index = get_best_preserve_starting_index(true);
 		}
-
-		if (_preserve_drawcalls > 0 || _preserve_vertices > 0)
-			select_next_depthstencil_replacement(depthstencil);
 
 		if (is_preserved())
 		{
@@ -588,31 +555,20 @@ namespace reshade::d3d9
 		{
 			if (is_preserved())
 			{
-				// if the current depth buffer replacement texture has to be preserved, update the effect depth texture ref with the current replacement one
-				_depthstencil_replacement = depthstencil;
 				// Update effect textures
 				update_effect_textures();
 			}
 
 			if (_preserve_drawcalls > 0 || _preserve_vertices > 0)
-				// go to the next clearing index
-				_clear_idx++;
+			{
+				if(select_next_depthstencil_replacement(depthstencil))
+					// go to the next clearing index
+					_clear_idx++;
+			}
 
-			// the current depthstencil surface is set to this new depth buffer replacement surface
+			// the current depthstencil surface is set to the new depth buffer replacement surface
 			_device->SetDepthStencilSurface(get_depthstencil_replacement().get());
-			// for the next tables, we need to get back to the original depthstencil ref
-			depthstencil = _depthstencil;
 		}		
-
-		if (depthstencil != nullptr)
-		{
-			D3DSURFACE_DESC desc;
-			depthstencil->GetDesc(&desc);
-			const depth_buffer_info buffer_info = { depthstencil, desc.Width, desc.Height, 0, 0 };
-			_clear_buffer_idx++;
-			// keep trace of the counters for the next clerance step for the original depthstencil ref
-			_depth_buffer_table.emplace(_clear_buffer_idx, buffer_info);
-		}
 
 		_preserve_drawcalls = 0;
 		_preserve_vertices = 0;
@@ -1480,7 +1436,7 @@ namespace reshade::d3d9
 				if (ImGui::Checkbox("Brute force depth buffer retrieval", &_brute_force_depth_buffer))
 				{
 					runtime::save_config();
-					init_depthbuffer_detection_var();
+					init_depthbuffer_detection_var(true);
 				}
 
 				ImGui::Spacing();
@@ -1488,7 +1444,7 @@ namespace reshade::d3d9
 				if (ImGui::Checkbox("Disable replacement with INTZ format", &_disable_intz))
 				{
 					runtime::save_config();
-					init_depthbuffer_detection_var();
+					init_depthbuffer_detection_var(true);
 				}
 			}
 
@@ -1507,13 +1463,6 @@ namespace reshade::d3d9
 					runtime::save_config();
 					init_depthbuffer_detection_var(true);
 				}
-
-				ImGui::Spacing();
-
-				/*for (const auto &it : _depth_buffer_table)
-				{
-					ImGui::Text("%s0x%p | %ux%u : %u draw calls ==> %u vertices", (it.first == _preserve_selected_index ? "> " : "  "), it.second.depthstencil, it.second.width, it.second.height, it.second.drawcall_count, it.second.vertices_count);
-				}*/
 
 				ImGui::Spacing();
 
@@ -1584,7 +1533,7 @@ namespace reshade::d3d9
 				if (modified)
 				{
 					runtime::save_config();
-					init_depthbuffer_detection_var();
+					init_depthbuffer_detection_var(true);
 				}
 			}
 			else
@@ -1600,7 +1549,7 @@ namespace reshade::d3d9
 
 	void runtime_d3d9::detect_depth_source()
 	{
-		if (_framecount % 30 || _is_multisampling_enabled || _depth_source_table.empty())
+		if (_is_multisampling_enabled || _depth_source_table.empty())
 			return;
 
 		if (_has_high_network_activity)
@@ -1612,62 +1561,32 @@ namespace reshade::d3d9
 		depth_source_info best_info = { 0 };
 		IDirect3DSurface9 *best_match = nullptr;
 
-		// in case the depth buffer table is empty, we first retrieve the default depth stencil buffer, and its default depth buffer replacement surface
-		if (!_preserve_depth_buffer || _depth_buffer_table.empty())
+		for (auto it = _depth_source_table.begin(); it != _depth_source_table.end();)
 		{
-			for (auto it = _depth_source_table.begin(); it != _depth_source_table.end();)
+			const auto depthstencil = it->first;
+			auto &depthstencil_info = it->second;
+
+			if ((depthstencil->AddRef(), depthstencil->Release()) == 1)
 			{
-				const auto depthstencil = it->first;
-				auto &depthstencil_info = it->second;
+				depthstencil->Release();
 
-				if ((depthstencil->AddRef(), depthstencil->Release()) == 1)
-				{
-					depthstencil->Release();
-
-					it = _depth_source_table.erase(it);
-					continue;
-				}
-				else
-				{
-					++it;
-				}
-
-				if (depthstencil_info.drawcall_count == 0)
-				{
-					if (!_preserve_depth_buffer)
-					{
-						continue;
-					}
-				}
-
-				if ((depthstencil_info.vertices_count * (1.2f - float(depthstencil_info.drawcall_count) / _drawcalls)) >= (best_info.vertices_count * (1.2f - float(best_info.drawcall_count) / _drawcalls)))
-				{
-					best_match = depthstencil;
-					best_info = depthstencil_info;
-				}
-
-				depthstencil_info.drawcall_count = depthstencil_info.vertices_count = 0;
+				it = _depth_source_table.erase(it);
+				continue;
 			}
-		}
-		else
-		{
-			int vertices = 0;
-			int drawcalls = 0;
-
-			// find the best depth buffer clearing instance, and report it in the depthbuffer table (just for monitoring purpose)
-			for (const auto &it : _depth_buffer_table)
+			else
 			{
-				bool best = (it.second.vertices_count > vertices);
-				if(_auto_preserve_on_drawcalls)
-					best = (it.second.drawcall_count > drawcalls);
+				++it;
+			}
 
-				if (best)
-				{
-					_preserve_selected_index = it.first;
-					best_match = it.second.depthstencil.get();
-					vertices = it.second.vertices_count;
-					drawcalls = it.second.drawcall_count;
-				}
+			if (depthstencil_info.drawcall_count == 0)
+			{
+				continue;
+			}
+
+			if ((depthstencil_info.vertices_count * (1.2f - float(depthstencil_info.drawcall_count) / _drawcalls)) >= (best_info.vertices_count * (1.2f - float(best_info.drawcall_count) / _drawcalls)))
+			{
+				best_match = depthstencil;
+				best_info = depthstencil_info;
 			}
 		}
 
@@ -1760,8 +1679,9 @@ namespace reshade::d3d9
 			}
 		}
 
-		// Update effect textures
-		update_effect_textures();
+		if(!_preserve_depth_buffer)
+			// Update effect textures
+			update_effect_textures();
 
 		return true;
 	}
@@ -1825,7 +1745,7 @@ namespace reshade::d3d9
 
 	bool runtime_d3d9::select_next_depthstencil_replacement(com_ptr<IDirect3DSurface9> depthstencil)
 	{
-		if (depthstencil == nullptr || depthstencil == _default_depthstencil)
+		if (depthstencil == nullptr || depthstencil == _default_depthstencil || _depthstencil_replacement == nullptr)
 			return false;
 
 		depth_clearing_info clearing_info;
@@ -1879,16 +1799,15 @@ namespace reshade::d3d9
 	{
 		const auto it = _depth_clearing_table.find(_clear_idx);
 
-		if (it != _depth_clearing_table.end())
+		if (_brute_force_depth_buffer)
+			return _brute_force_depthstencil_replacement;
+		else if (it != _depth_clearing_table.end())
 		{
 			if(it->second.depthstencil != nullptr)
 				return it->second.depthstencil;
 		}
 
-		if(_depthstencil_replacement != nullptr)
-			return _depthstencil_replacement;
-
-		return _default_depthstencil;
+		return _depthstencil_replacement;
 	}
 
 	// retrieve the depth buffer texture replacement ref, depending on the detection mode
@@ -1987,7 +1906,7 @@ namespace reshade::d3d9
 		return false;
 	}
 
-	void runtime_d3d9::init_depthbuffer_detection_var(bool clean_db_tables = false)
+	void runtime_d3d9::init_depthbuffer_detection_var(bool clean_db_tables)
 	{
 		// Force depth-stencil replacement recreation
 		_depthstencil = nullptr;
@@ -1995,8 +1914,6 @@ namespace reshade::d3d9
 
 		if (clean_db_tables)
 		{
-			// Force depth-stencil clearing table recreation
-			_depth_buffer_table.clear();
 			_depth_clearing_table.clear();
 		}
 	}
@@ -2005,6 +1922,5 @@ namespace reshade::d3d9
 	{
 		_brute_force_depth_buffer = false;
 		_brute_force_depthstencil_replacement.reset();
-		_brute_force_depthstencil_texture.reset();
 	}
 }

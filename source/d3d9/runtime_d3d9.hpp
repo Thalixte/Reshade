@@ -114,7 +114,7 @@ namespace reshade::d3d9
 		int get_best_preserve_starting_index(bool multi);
 		bool check_depthstencil_size(com_ptr<IDirect3DSurface9> depthstencil);
 		bool is_preserved();
-		void init_depthbuffer_detection_var(clean_db_tables);
+		void init_depthbuffer_detection_var(bool clean_db_tables);
 		void init_brute_force_depthbuffer();
 
 #if RESHADE_GUI
@@ -153,7 +153,6 @@ namespace reshade::d3d9
 		com_ptr<IDirect3DStateBlock9> _app_state;
 		com_ptr<IDirect3DSurface9> _default_depthstencil;
 		std::unordered_map<IDirect3DSurface9 *, depth_source_info> _depth_source_table;
-		std::map<int, depth_buffer_info> _depth_buffer_table;
 		std::map<int, depth_clearing_info> _depth_clearing_table;
 
 		com_ptr<IDirect3DVertexBuffer9> _effect_triangle_buffer;
