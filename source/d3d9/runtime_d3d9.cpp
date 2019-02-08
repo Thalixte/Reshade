@@ -488,13 +488,11 @@ namespace reshade::d3d9
 
 		if (depthstencil != nullptr)
 		{
-			if (depthstencil == get_depthstencil_replacement())
+			if (!_preserve_depth_buffer && depthstencil == get_depthstencil_replacement())
 			{
 				// for the next tables, we need to get back to the original depthstencil ref
 				depthstencil = _depthstencil;
 			}
-			else
-				bresult = false;
 
 			// original depth source table update
 			const auto it = _depth_source_table.find(depthstencil.get());
