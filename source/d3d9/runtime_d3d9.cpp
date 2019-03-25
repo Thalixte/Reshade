@@ -301,6 +301,24 @@ void reshade::d3d9::runtime_d3d9::on_draw_call(D3DPRIMITIVETYPE type, unsigned i
 	com_ptr<IDirect3DSurface9> depthstencil;
 	_device->GetDepthStencilSurface(&depthstencil);
 
+	D3DVIEWPORT9 current_viewport;
+
+	_device->GetViewport(&current_viewport);
+
+	// early rejection
+	if(_disable_depth_buffer_size_restriction)
+	{
+		// Allow depth buffers with greater dimensions than the viewport (e.g. in games like Vanquish)
+		if (!(current_viewport.Width >= _width * 0.95 && current_viewport.Height >= _height * 0.95))
+			return;
+	}
+	else
+	{
+		if (!((current_viewport.Width >= _width * 0.95 && current_viewport.Width <= _width * 1.05)
+			&& (current_viewport.Height >= _height * 0.95 && current_viewport.Height <= _height * 1.05)))
+			return;
+	}
+
 	if (depthstencil != nullptr)
 	{
 		// Resolve pointer to original depth stencil
@@ -350,6 +368,24 @@ void reshade::d3d9::runtime_d3d9::on_clear_depthstencil_surface(IDirect3DSurface
 	depthstencil->GetDesc(&desc);
 	if (!check_depthstencil_size(desc)) // Ignore unlikely candidates
 		return;
+
+	D3DVIEWPORT9 current_viewport;
+
+	_device->GetViewport(&current_viewport);
+
+	// early rejection
+	if (_disable_depth_buffer_size_restriction)
+	{
+		// Allow depth buffers with greater dimensions than the viewport (e.g. in games like Vanquish)
+		if (!(current_viewport.Width >= _width * 0.95 && current_viewport.Height >= _height * 0.95))
+			return;
+	}
+	else
+	{
+		if (!((current_viewport.Width >= _width * 0.95 && current_viewport.Width <= _width * 1.05)
+			&& (current_viewport.Height >= _height * 0.95 && current_viewport.Height <= _height * 1.05)))
+			return;
+	}
 
 	// Check if any draw calls have been registered since the last clear operation
 	if (_current_db_drawcalls > 0 && _current_db_vertices > 0)
