@@ -301,23 +301,9 @@ void reshade::d3d9::runtime_d3d9::on_draw_call(D3DPRIMITIVETYPE type, unsigned i
 	com_ptr<IDirect3DSurface9> depthstencil;
 	_device->GetDepthStencilSurface(&depthstencil);
 
-	D3DVIEWPORT9 current_viewport;
-
-	_device->GetViewport(&current_viewport);
-
-	// early rejection
-	if(_disable_depth_buffer_size_restriction)
-	{
-		// Allow depth buffers with greater dimensions than the viewport (e.g. in games like Vanquish)
-		if (!(current_viewport.Width >= _width * 0.95 && current_viewport.Height >= _height * 0.95))
-			return;
-	}
-	else
-	{
-		if (!((current_viewport.Width >= _width * 0.95 && current_viewport.Width <= _width * 1.05)
-			&& (current_viewport.Height >= _height * 0.95 && current_viewport.Height <= _height * 1.05)))
-			return;
-	}
+	// remove parasite items
+	if (!_is_good_viewport)
+		return;
 
 	if (depthstencil != nullptr)
 	{
@@ -369,23 +355,9 @@ void reshade::d3d9::runtime_d3d9::on_clear_depthstencil_surface(IDirect3DSurface
 	if (!check_depthstencil_size(desc)) // Ignore unlikely candidates
 		return;
 
-	D3DVIEWPORT9 current_viewport;
-
-	_device->GetViewport(&current_viewport);
-
-	// early rejection
-	if (_disable_depth_buffer_size_restriction)
-	{
-		// Allow depth buffers with greater dimensions than the viewport (e.g. in games like Vanquish)
-		if (!(current_viewport.Width >= _width * 0.95 && current_viewport.Height >= _height * 0.95))
-			return;
-	}
-	else
-	{
-		if (!((current_viewport.Width >= _width * 0.95 && current_viewport.Width <= _width * 1.05)
-			&& (current_viewport.Height >= _height * 0.95 && current_viewport.Height <= _height * 1.05)))
-			return;
-	}
+	// remove parasite items
+	if (!_is_good_viewport)
+		return;
 
 	// Check if any draw calls have been registered since the last clear operation
 	if (_current_db_drawcalls > 0 && _current_db_vertices > 0)
@@ -447,6 +419,17 @@ void reshade::d3d9::runtime_d3d9::capture_screenshot(uint8_t *buffer) const
 	}
 
 	intermediate->UnlockRect();
+}
+
+void reshade::d3d9::runtime_d3d9::on_set_viewport(const D3DVIEWPORT9 *pViewport)
+{
+	D3DSURFACE_DESC desc;
+
+	desc.Width = pViewport->Width;
+	desc.Height = pViewport->Height;
+	desc.MultiSampleType = D3DMULTISAMPLE_NONE;
+
+	_is_good_viewport = check_depthstencil_size(desc);
 }
 
 bool reshade::d3d9::runtime_d3d9::init_texture(texture &texture)
