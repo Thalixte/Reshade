@@ -355,6 +355,8 @@ void reshade::d3d9::runtime_d3d9::on_clear_depthstencil_surface(IDirect3DSurface
 	if (!check_depthstencil_size(desc)) // Ignore unlikely candidates
 		return;
 
+	com_ptr<IDirect3DSurface9> dummy_depthstencil = nullptr;
+
 	// remove parasite items
 	if (!_is_good_viewport)
 		return;
@@ -376,9 +378,12 @@ void reshade::d3d9::runtime_d3d9::on_clear_depthstencil_surface(IDirect3DSurface
 	if (_depth_buffer_table.empty() || _depth_buffer_table.size() <= _preserve_starting_index)
 		return;
 
+	if (_disable_depth_buffer_size_restriction)
+		dummy_depthstencil = _depthstencil;
+
 	// If the current depth buffer replacement texture has to be preserved, replace the set surface with the original one, so that the replacement texture will not be cleared
-	_device->SetDepthStencilSurface(_depthstencil.get());
-}
+	_device->SetDepthStencilSurface(dummy_depthstencil.get());
+}	
 
 void reshade::d3d9::runtime_d3d9::capture_screenshot(uint8_t *buffer) const
 {
@@ -423,13 +428,19 @@ void reshade::d3d9::runtime_d3d9::capture_screenshot(uint8_t *buffer) const
 
 void reshade::d3d9::runtime_d3d9::on_set_viewport(const D3DVIEWPORT9 *pViewport)
 {
-	D3DSURFACE_DESC desc;
+	D3DSURFACE_DESC desc, depthstencil_desc;
 
 	desc.Width = pViewport->Width;
 	desc.Height = pViewport->Height;
 	desc.MultiSampleType = D3DMULTISAMPLE_NONE;
 
-	_is_good_viewport = check_depthstencil_size(desc);
+	if (_depthstencil_replacement == nullptr)
+		_is_good_viewport = check_depthstencil_size(desc);
+	else
+	{
+		_depthstencil_replacement->GetDesc(&depthstencil_desc);
+		_is_good_viewport = check_depthstencil_size(desc, depthstencil_desc);
+	}
 }
 
 bool reshade::d3d9::runtime_d3d9::init_texture(texture &texture)
@@ -1410,6 +1421,23 @@ bool reshade::d3d9::runtime_d3d9::check_depthstencil_size(const D3DSURFACE_DESC 
 	{
 		return (desc.Width >= _width * 0.95 && desc.Width <= _width * 1.05)
 			&& (desc.Height >= _height * 0.95 && desc.Height <= _height * 1.05);
+	}
+}
+
+bool reshade::d3d9::runtime_d3d9::check_depthstencil_size(const D3DSURFACE_DESC &desc, const D3DSURFACE_DESC &compared_desc)
+{
+	if (desc.MultiSampleType != D3DMULTISAMPLE_NONE)
+		return false; // MSAA depth buffers are not supported since they would have to be moved into a plain surface before attaching to a shader slot
+
+	if (_disable_depth_buffer_size_restriction)
+	{
+		// Allow depth buffers with greater dimensions than the viewport (e.g. in games like Vanquish)
+		return desc.Width >= compared_desc.Width * 0.95 && desc.Height >= compared_desc.Height * 0.95;
+	}
+	else
+	{
+		return (desc.Width >= compared_desc.Width * 0.95 && desc.Width <= compared_desc.Width * 1.05)
+			&& (desc.Height >= compared_desc.Height * 0.95 && desc.Height <= compared_desc.Height * 1.05);
 	}
 }
 

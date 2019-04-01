@@ -57,6 +57,7 @@ namespace reshade::d3d9
 		void render_technique(technique &technique) override;
 
 		bool check_depthstencil_size(const D3DSURFACE_DESC &desc);
+		bool check_depthstencil_size(const D3DSURFACE_DESC &desc, const D3DSURFACE_DESC &compared_desc);
 
 #if RESHADE_GUI
 		bool init_imgui_resources();
