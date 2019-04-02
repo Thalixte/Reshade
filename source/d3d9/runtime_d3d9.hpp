@@ -86,8 +86,6 @@ namespace reshade::d3d9
 		bool _disable_depth_buffer_size_restriction = false;
 		size_t _preserve_starting_index = 0;
 		bool _auto_preserve = true;
-		bool _auto_preserve_on_drawcalls = false;
-		bool _auto_preserve_on_vertices = true;
 		bool _is_good_viewport = true;
 		unsigned int _db_vertices = 0;
 		unsigned int _db_drawcalls = 0;

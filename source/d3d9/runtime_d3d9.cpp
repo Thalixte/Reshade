@@ -74,20 +74,14 @@ reshade::d3d9::runtime_d3d9::runtime_d3d9(IDirect3DDevice9 *device, IDirect3DSwa
 	subscribe_to_load_config([this](const ini_file &config) {
 		config.get("DX9_BUFFER_DETECTION", "DisableINTZ", _disable_intz);
 		config.get("DX9_BUFFER_DETECTION", "PreserveDepthBuffer", _preserve_depth_buffer);
-		config.get("DX9_BUFFER_DETECTION", "DisableDepthBufferSizeRestriction", _disable_depth_buffer_size_restriction);
 		config.get("DX9_BUFFER_DETECTION", "PreserveDepthBufferIndex", _preserve_starting_index);
 		config.get("DX9_BUFFER_DETECTION", "AutoPreserve", _auto_preserve);
-		config.get("DX9_BUFFER_DETECTION", "AutoPreserveOnVertices", _auto_preserve_on_vertices);
-		config.get("DX9_BUFFER_DETECTION", "AutoPreserveOnDrawcalls", _auto_preserve_on_drawcalls);
 	});
 	subscribe_to_save_config([this](ini_file &config) {
 		config.set("DX9_BUFFER_DETECTION", "DisableINTZ", _disable_intz);
 		config.set("DX9_BUFFER_DETECTION", "PreserveDepthBuffer", _preserve_depth_buffer);
-		config.set("DX9_BUFFER_DETECTION", "DisableDepthBufferSizeRestriction", _disable_depth_buffer_size_restriction);
 		config.set("DX9_BUFFER_DETECTION", "PreserveDepthBufferIndex", _preserve_starting_index);
 		config.set("DX9_BUFFER_DETECTION", "AutoPreserve", _auto_preserve);
-		config.set("DX9_BUFFER_DETECTION", "AutoPreserveOnVertices", _auto_preserve_on_vertices);
-		config.set("DX9_BUFFER_DETECTION", "AutoPreserveOnDrawcalls", _auto_preserve_on_drawcalls);
 	});
 }
 reshade::d3d9::runtime_d3d9::~runtime_d3d9()
@@ -233,6 +227,8 @@ void reshade::d3d9::runtime_d3d9::on_reset()
 	_db_drawcalls = 0;
 	_current_db_vertices = 0;
 	_current_db_drawcalls = 0;
+
+	_disable_depth_buffer_size_restriction = false;
 }
 
 void reshade::d3d9::runtime_d3d9::on_present()
@@ -241,6 +237,18 @@ void reshade::d3d9::runtime_d3d9::on_present()
 		return;
 
 	detect_depth_source();
+
+	if (_depthstencil_replacement == nullptr)
+		_disable_depth_buffer_size_restriction = true;
+	else if (_disable_depth_buffer_size_restriction)
+	{
+		// Force depth-stencil replacement 
+		_depthstencil = _default_depthstencil;
+		// Force depth-stencil clearing table recreation
+		_depth_buffer_table.clear();
+		_depth_source_table.clear();
+		_disable_depth_buffer_size_restriction = false;
+	}
 
 	_app_state.capture();
 	BOOL software_rendering_enabled = FALSE;
@@ -305,6 +313,12 @@ void reshade::d3d9::runtime_d3d9::on_draw_call(D3DPRIMITIVETYPE type, unsigned i
 	if (!_is_good_viewport)
 		return;
 
+	if (_preserve_depth_buffer && _depthstencil_replacement != nullptr && _depthstencil != nullptr)
+	{
+		if(_depthstencil_replacement != depthstencil)
+			_device->SetDepthStencilSurface(_depthstencil_replacement.get());
+	}
+
 	if (depthstencil != nullptr)
 	{
 		// Resolve pointer to original depth stencil
@@ -355,8 +369,6 @@ void reshade::d3d9::runtime_d3d9::on_clear_depthstencil_surface(IDirect3DSurface
 	if (!check_depthstencil_size(desc)) // Ignore unlikely candidates
 		return;
 
-	com_ptr<IDirect3DSurface9> dummy_depthstencil = nullptr;
-
 	// remove parasite items
 	if (!_is_good_viewport)
 		return;
@@ -375,14 +387,11 @@ void reshade::d3d9::runtime_d3d9::on_clear_depthstencil_surface(IDirect3DSurface
 	_current_db_vertices = 0;
 	_current_db_drawcalls = 0;
 
-	if (_depth_buffer_table.empty() || _depth_buffer_table.size() <= _preserve_starting_index)
+	if (_depth_buffer_table.empty() || _depth_buffer_table.size() == _preserve_starting_index)
 		return;
 
-	if (_disable_depth_buffer_size_restriction)
-		dummy_depthstencil = _depthstencil;
-
 	// If the current depth buffer replacement texture has to be preserved, replace the set surface with the original one, so that the replacement texture will not be cleared
-	_device->SetDepthStencilSurface(dummy_depthstencil.get());
+	_device->SetDepthStencilSurface(nullptr);
 }	
 
 void reshade::d3d9::runtime_d3d9::capture_screenshot(uint8_t *buffer) const
@@ -433,13 +442,17 @@ void reshade::d3d9::runtime_d3d9::on_set_viewport(const D3DVIEWPORT9 *pViewport)
 	desc.Width = pViewport->Width;
 	desc.Height = pViewport->Height;
 	desc.MultiSampleType = D3DMULTISAMPLE_NONE;
+	_is_good_viewport = true;
 
-	if (_depthstencil_replacement == nullptr)
-		_is_good_viewport = check_depthstencil_size(desc);
-	else
+	if (_preserve_depth_buffer)
 	{
-		_depthstencil_replacement->GetDesc(&depthstencil_desc);
-		_is_good_viewport = check_depthstencil_size(desc, depthstencil_desc);
+		if (_depthstencil_replacement == nullptr)
+			_is_good_viewport = check_depthstencil_size(desc);
+		else
+		{
+			_depthstencil_replacement->GetDesc(&depthstencil_desc);
+			_is_good_viewport = check_depthstencil_size(desc, depthstencil_desc);
+		}
 	}
 }
 
@@ -1236,19 +1249,6 @@ void reshade::d3d9::runtime_d3d9::draw_debug_menu()
 			}
 		}
 
-		ImGui::Spacing();
-
-		if (ImGui::Checkbox("Disable the depth buffer size restriction", &_disable_depth_buffer_size_restriction))
-		{
-			runtime::save_config();
-
-			// Force depth-stencil replacement 
-			_depthstencil = _default_depthstencil;
-			// Force depth-stencil clearing table recreation
-			_depth_buffer_table.clear();
-			_depth_source_table.clear();
-		}
-
 		if (_preserve_depth_buffer)
 		{
 			ImGui::Spacing();
@@ -1260,20 +1260,6 @@ void reshade::d3d9::runtime_d3d9::draw_debug_menu()
 				modified = true;
 				if (_auto_preserve)
 					_preserve_starting_index = std::numeric_limits<size_t>::max();
-			}
-
-			if (_auto_preserve)
-			{
-				if (ImGui::Checkbox("find best depthstencil based on vertices", &_auto_preserve_on_vertices))
-				{
-					modified = true;
-					_auto_preserve_on_drawcalls = !_auto_preserve_on_vertices;
-				}
-				if (ImGui::Checkbox("find best depthstencil based on drawcalls", &_auto_preserve_on_drawcalls))
-				{
-					modified = true;
-					_auto_preserve_on_vertices = !_auto_preserve_on_drawcalls;
-				}
 			}
 
 			ImGui::Spacing();
@@ -1351,8 +1337,7 @@ void reshade::d3d9::runtime_d3d9::detect_depth_source()
 			for (size_t i = 0; i != _depth_buffer_table.size(); i++)
 			{
 				const auto &it = _depth_buffer_table[i];
-				if (_auto_preserve_on_drawcalls ?
-					it.drawcall_count >= _db_drawcalls : it.vertices_count >= _db_vertices)
+				if (it.vertices_count >= _db_vertices)
 				{
 					_db_vertices = it.vertices_count;
 					_db_drawcalls = it.drawcall_count;
