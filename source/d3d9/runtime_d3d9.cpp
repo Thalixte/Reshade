@@ -242,10 +242,6 @@ void reshade::d3d9::runtime_d3d9::on_present()
 		_disable_depth_buffer_size_restriction = true;
 	else if (_disable_depth_buffer_size_restriction)
 	{
-		// Force depth-stencil replacement 
-		_depthstencil = _default_depthstencil;
-		// Force depth-stencil clearing table recreation
-		_depth_buffer_table.clear();
 		_depth_source_table.clear();
 		_disable_depth_buffer_size_restriction = false;
 	}
