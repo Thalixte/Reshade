@@ -305,16 +305,6 @@ void reshade::d3d9::runtime_d3d9::on_draw_call(D3DPRIMITIVETYPE type, unsigned i
 	com_ptr<IDirect3DSurface9> depthstencil;
 	_device->GetDepthStencilSurface(&depthstencil);
 
-	// remove parasite items
-	if (!_is_good_viewport)
-		return;
-
-	if (_preserve_depth_buffer && _depthstencil_replacement != nullptr)
-	{
-		if(_depthstencil_replacement != depthstencil)
-			_device->SetDepthStencilSurface(_depthstencil_replacement.get());
-	}
-
 	if (depthstencil != nullptr)
 	{
 		// Resolve pointer to original depth stencil
@@ -333,9 +323,23 @@ void reshade::d3d9::runtime_d3d9::on_draw_call(D3DPRIMITIVETYPE type, unsigned i
 			it->second.vertices_count += vertices;
 		}
 	}
+
+	// remove parasite items
+	if (!_is_good_viewport)
+		return;
+
+	if (!_is_good_depthstencil)
+		return;
+
+	if (_preserve_depth_buffer && _depthstencil_replacement != nullptr)
+	{
+		if (_depthstencil_replacement != depthstencil)
+			_device->SetDepthStencilSurface(_depthstencil_replacement.get());
+	}
 }
 void reshade::d3d9::runtime_d3d9::on_set_depthstencil_surface(IDirect3DSurface9 *&depthstencil)
 {
+	_is_good_depthstencil = false;
 	// Keep track of all used depth stencil surfaces
 	if (_depth_source_table.find(depthstencil) == _depth_source_table.end())
 	{
@@ -348,7 +352,10 @@ void reshade::d3d9::runtime_d3d9::on_set_depthstencil_surface(IDirect3DSurface9 
 	}
 
 	if (_depthstencil_replacement != nullptr && depthstencil == _depthstencil)
+	{
+		_is_good_depthstencil = true;
 		depthstencil = _depthstencil_replacement.get(); // Replace application depth stencil surface with our custom one
+	}
 }
 void reshade::d3d9::runtime_d3d9::on_get_depthstencil_surface(IDirect3DSurface9 *&depthstencil)
 {
