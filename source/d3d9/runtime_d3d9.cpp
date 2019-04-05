@@ -320,18 +320,18 @@ void reshade::d3d9::runtime_d3d9::on_draw_call(D3DPRIMITIVETYPE type, unsigned i
 		}
 	}
 
-	// remove parasite items
-	if (!_is_good_viewport)
-		return;
-
-	// check that the drawcall is done on the good depthstencil (the one from which the depthstencil_replaceent was created)
-	if (!_is_good_depthstencil)
-		return;
-
 	if (_preserve_depth_buffer && _depthstencil_replacement != nullptr)
 	{
+		// remove parasite items
+		if (!_is_good_viewport)
+			return;
+
+		// check that the drawcall is done on the good depthstencil (the one from which the depthstencil_replaceent was created)
+		if (!_is_good_depthstencil)
+			return;
+
 		_current_db_vertices += vertices,
-			_current_db_drawcalls += 1;
+		_current_db_drawcalls += 1;
 
 		if (_depthstencil_replacement != depthstencil)
 			_device->SetDepthStencilSurface(_depthstencil_replacement.get());
@@ -393,6 +393,24 @@ void reshade::d3d9::runtime_d3d9::on_clear_depthstencil_surface(IDirect3DSurface
 	_device->SetDepthStencilSurface(nullptr);
 }
 
+void reshade::d3d9::runtime_d3d9::on_set_viewport(const D3DVIEWPORT9 *pViewport)
+{
+	D3DSURFACE_DESC desc, depthstencil_desc;
+
+	desc.Width = pViewport->Width;
+	desc.Height = pViewport->Height;
+	desc.MultiSampleType = D3DMULTISAMPLE_NONE;
+	_is_good_viewport = true;
+
+	if (_depthstencil_replacement == nullptr)
+		_is_good_viewport = check_depthstencil_size(desc);
+	else
+	{
+		_depthstencil_replacement->GetDesc(&depthstencil_desc);
+		_is_good_viewport = check_depthstencil_size(desc, depthstencil_desc);
+	}
+}
+
 void reshade::d3d9::runtime_d3d9::capture_screenshot(uint8_t *buffer) const
 {
 	if (_backbuffer_format != D3DFMT_X8R8G8B8 &&
@@ -432,27 +450,6 @@ void reshade::d3d9::runtime_d3d9::capture_screenshot(uint8_t *buffer) const
 	}
 
 	intermediate->UnlockRect();
-}
-
-void reshade::d3d9::runtime_d3d9::on_set_viewport(const D3DVIEWPORT9 *pViewport)
-{
-	D3DSURFACE_DESC desc, depthstencil_desc;
-
-	desc.Width = pViewport->Width;
-	desc.Height = pViewport->Height;
-	desc.MultiSampleType = D3DMULTISAMPLE_NONE;
-	_is_good_viewport = true;
-
-	if (_preserve_depth_buffer)
-	{
-		if (_depthstencil_replacement == nullptr)
-			_is_good_viewport = check_depthstencil_size(desc);
-		else
-		{
-			_depthstencil_replacement->GetDesc(&depthstencil_desc);
-			_is_good_viewport = check_depthstencil_size(desc, depthstencil_desc);
-		}
-	}
 }
 
 bool reshade::d3d9::runtime_d3d9::init_texture(texture &texture)
