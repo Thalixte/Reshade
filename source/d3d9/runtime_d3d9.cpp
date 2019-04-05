@@ -238,7 +238,7 @@ void reshade::d3d9::runtime_d3d9::on_present()
 
 	detect_depth_source();
 
-	if (_depth_buffer_table.empty())
+	if (_depthstencil_replacement == nullptr)
 		_disable_depth_buffer_size_restriction = true;
 	else if (_disable_depth_buffer_size_restriction)
 	{
@@ -324,14 +324,14 @@ void reshade::d3d9::runtime_d3d9::on_draw_call(D3DPRIMITIVETYPE type, unsigned i
 	if (!_is_good_viewport)
 		return;
 
-	// check that the drawcall is done on the good depthstencil (the one from which the depthstencil_replaceent was created
+	// check that the drawcall is done on the good depthstencil (the one from which the depthstencil_replaceent was created)
 	if (!_is_good_depthstencil)
 		return;
 
 	if (_preserve_depth_buffer && _depthstencil_replacement != nullptr)
 	{
 		_current_db_vertices += vertices,
-		_current_db_drawcalls += 1;
+			_current_db_drawcalls += 1;
 
 		if (_depthstencil_replacement != depthstencil)
 			_device->SetDepthStencilSurface(_depthstencil_replacement.get());
@@ -349,7 +349,7 @@ void reshade::d3d9::runtime_d3d9::on_set_depthstencil_surface(IDirect3DSurface9 
 		if (!check_depthstencil_size(desc)) // Ignore unlikely candidates
 			return;
 
-		_depth_source_table.emplace(depthstencil, depth_source_info { nullptr, desc.Width, desc.Height });
+		_depth_source_table.emplace(depthstencil, depth_source_info{ nullptr, desc.Width, desc.Height });
 	}
 
 	if (_depthstencil_replacement != nullptr && depthstencil == _depthstencil)
@@ -391,7 +391,7 @@ void reshade::d3d9::runtime_d3d9::on_clear_depthstencil_surface(IDirect3DSurface
 
 	// If the current depth buffer replacement texture has to be preserved, replace the set surface with the original one, so that the replacement texture will not be cleared
 	_device->SetDepthStencilSurface(nullptr);
-}	
+}
 
 void reshade::d3d9::runtime_d3d9::capture_screenshot(uint8_t *buffer) const
 {
@@ -548,7 +548,7 @@ bool reshade::d3d9::runtime_d3d9::init_texture(texture &texture)
 			"Width = " << texture.width << ", "
 			"Height = " << texture.height << ", "
 			"Levels = " << levels << ", "
-			"Usage = " <<usage << ", "
+			"Usage = " << usage << ", "
 			"Format = " << format << ")! "
 			"HRESULT is '" << std::hex << hr << std::dec << "'.";
 		return false;
@@ -1227,8 +1227,9 @@ void reshade::d3d9::runtime_d3d9::draw_debug_menu()
 			// Force depth source table recreation
 			_depth_buffer_table.clear();
 			_depth_source_table.clear();
+			_depthstencil_replacement.reset();
 
-			if(_preserve_depth_buffer)
+			if (_preserve_depth_buffer)
 				_disable_intz = false;
 		}
 
@@ -1297,6 +1298,10 @@ void reshade::d3d9::runtime_d3d9::draw_debug_menu()
 
 				// Force depth-stencil replacement recreation
 				_depthstencil = _default_depthstencil;
+				// Force depth source table recreation
+				_depth_buffer_table.clear();
+				_depth_source_table.clear();
+				_depthstencil_replacement.reset();
 			}
 		}
 		else
