@@ -238,7 +238,7 @@ void reshade::d3d9::runtime_d3d9::on_present()
 
 	detect_depth_source();
 
-	if (_depthstencil_replacement == nullptr)
+	if (_depth_buffer_table.empty())
 		_disable_depth_buffer_size_restriction = true;
 	else if (_disable_depth_buffer_size_restriction)
 	{
@@ -324,6 +324,7 @@ void reshade::d3d9::runtime_d3d9::on_draw_call(D3DPRIMITIVETYPE type, unsigned i
 	if (!_is_good_viewport)
 		return;
 
+	// check that the drawcall is done on the good depthstencil (the one from which the depthstencil_replaceent was created
 	if (!_is_good_depthstencil)
 		return;
 
