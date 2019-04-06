@@ -1499,8 +1499,7 @@ bool reshade::d3d9::runtime_d3d9::create_depthstencil_replacement(const com_ptr<
 		}
 		else 
 		{
-			if (!_preserve_depth_buffer)
-				_depthstencil_replacement = _depthstencil;
+			_depthstencil_replacement = _depthstencil;
 
 			if (HRESULT hr = _depthstencil_replacement->GetContainer(IID_PPV_ARGS(&_depthstencil_texture)); FAILED(hr))
 			{
