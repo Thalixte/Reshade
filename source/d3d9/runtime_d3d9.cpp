@@ -1353,7 +1353,7 @@ void reshade::d3d9::runtime_d3d9::detect_depth_source()
 			for (size_t i = 0; i != _depth_buffer_table.size(); i++)
 			{
 				const auto &it = _depth_buffer_table[i];
-				if ((it.vertices_count * (1.2f - float(it.drawcall_count) / _drawcalls)) >= (_db_vertices * (1.2f - float(_db_drawcalls) / _drawcalls)))
+				if (it.drawcall_count >= _db_drawcalls)
 				{
 					_db_vertices = it.vertices_count;
 					_db_drawcalls = it.drawcall_count;
