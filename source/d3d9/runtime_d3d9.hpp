@@ -23,8 +23,13 @@ namespace reshade::d3d9
 		bool on_init(const D3DPRESENT_PARAMETERS &pp);
 		void on_reset();
 		void on_present();
+		
+		void on_draw_primitive(D3DPRIMITIVETYPE PrimitiveType, UINT StartVertex, UINT PrimitiveCount);
+		void on_draw_indexed_primitive(D3DPRIMITIVETYPE PrimitiveType, INT BaseVertexIndex, UINT MinVertexIndex, UINT NumVertices, UINT StartIndex, UINT PrimitiveCount);
+		void on_draw_primitive_up(D3DPRIMITIVETYPE PrimitiveType, UINT PrimitiveCount, const void *pVertexStreamZeroData, UINT VertexStreamZeroStride);
+		void on_draw_indexed_primitive_up(D3DPRIMITIVETYPE PrimitiveType, UINT MinVertexIndex, UINT NumVertices, UINT PrimitiveCount, const void *pIndexData, D3DFORMAT IndexDataFormat, const void *pVertexStreamZeroData, UINT VertexStreamZeroStride);
+		void on_draw_call(com_ptr<IDirect3DSurface9> depthstencil, D3DPRIMITIVETYPE type, unsigned int count);
 
-		void on_draw_call(D3DPRIMITIVETYPE type, unsigned int count);
 		void on_set_depthstencil_surface(IDirect3DSurface9 *&depthstencil);
 		void on_get_depthstencil_surface(IDirect3DSurface9 *&depthstencil);
 		void on_clear_depthstencil_surface(IDirect3DSurface9 *depthstencil);
@@ -83,10 +88,11 @@ namespace reshade::d3d9
 		unsigned int _behavior_flags;
 		bool _disable_intz = false;
 		bool _preserve_depth_buffer = false;
-		bool _disable_depth_buffer_size_restriction = false;
-		size_t _preserve_starting_index = 0;
-		bool _init_depthbuffer_detection = true;
 		bool _auto_preserve = true;
+		size_t _preserve_starting_index = 0;
+		bool _brute_force_fix = false;
+		bool _disable_depth_buffer_size_restriction = false;
+		bool _init_depthbuffer_detection = true;
 		bool _is_good_viewport = true;
 		bool _is_good_depthstencil = true;
 		unsigned int _db_vertices = 0;

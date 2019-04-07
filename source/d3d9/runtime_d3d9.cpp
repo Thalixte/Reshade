@@ -76,12 +76,14 @@ reshade::d3d9::runtime_d3d9::runtime_d3d9(IDirect3DDevice9 *device, IDirect3DSwa
 		config.get("DX9_BUFFER_DETECTION", "PreserveDepthBuffer", _preserve_depth_buffer);
 		config.get("DX9_BUFFER_DETECTION", "PreserveDepthBufferIndex", _preserve_starting_index);
 		config.get("DX9_BUFFER_DETECTION", "AutoPreserve", _auto_preserve);
+		config.get("DX9_BUFFER_DETECTION", "BruteForceFix", _brute_force_fix);
 	});
 	subscribe_to_save_config([this](ini_file &config) {
 		config.set("DX9_BUFFER_DETECTION", "DisableINTZ", _disable_intz);
 		config.set("DX9_BUFFER_DETECTION", "PreserveDepthBuffer", _preserve_depth_buffer);
 		config.set("DX9_BUFFER_DETECTION", "PreserveDepthBufferIndex", _preserve_starting_index);
 		config.set("DX9_BUFFER_DETECTION", "AutoPreserve", _auto_preserve);
+		config.set("DX9_BUFFER_DETECTION", "BruteForceFix", _brute_force_fix);
 	});
 }
 reshade::d3d9::runtime_d3d9::~runtime_d3d9()
@@ -288,30 +290,99 @@ void reshade::d3d9::runtime_d3d9::on_present()
 	}
 }
 
-void reshade::d3d9::runtime_d3d9::on_draw_call(D3DPRIMITIVETYPE type, unsigned int vertices)
+void reshade::d3d9::runtime_d3d9::on_draw_primitive(D3DPRIMITIVETYPE PrimitiveType, UINT StartVertex, UINT PrimitiveCount)
+{
+	com_ptr<IDirect3DSurface9> depthstencil;
+	_device->GetDepthStencilSurface(&depthstencil);
+
+	if (_brute_force_fix &&
+		_depthstencil_replacement != depthstencil &&
+		_is_good_viewport &&
+		_is_good_depthstencil &&
+		_depth_buffer_table.size() > _preserve_starting_index)
+	{
+		_device->SetDepthStencilSurface(_depthstencil_replacement.get());
+		if (FAILED(_device->DrawPrimitive(PrimitiveType, StartVertex, PrimitiveCount)))
+			return;
+	}
+
+	on_draw_call(depthstencil, PrimitiveType, PrimitiveCount);
+}
+void reshade::d3d9::runtime_d3d9::on_draw_indexed_primitive(D3DPRIMITIVETYPE PrimitiveType, INT BaseVertexIndex, UINT MinVertexIndex, UINT NumVertices, UINT StartIndex, UINT PrimitiveCount)
+{
+	com_ptr<IDirect3DSurface9> depthstencil;
+	_device->GetDepthStencilSurface(&depthstencil);
+
+	if (_brute_force_fix &&
+		_depthstencil_replacement != depthstencil &&
+		_is_good_viewport &&
+		_is_good_depthstencil &&
+		_depth_buffer_table.size() > _preserve_starting_index)
+	{
+		_device->SetDepthStencilSurface(_depthstencil_replacement.get());
+		if (FAILED(_device->DrawIndexedPrimitive(PrimitiveType, BaseVertexIndex, MinVertexIndex, NumVertices, StartIndex, PrimitiveCount)))
+			return;
+	}
+
+	on_draw_call(depthstencil, PrimitiveType, PrimitiveCount);
+}
+void reshade::d3d9::runtime_d3d9::on_draw_primitive_up(D3DPRIMITIVETYPE PrimitiveType, UINT PrimitiveCount, const void *pVertexStreamZeroData, UINT VertexStreamZeroStride)
+{
+	com_ptr<IDirect3DSurface9> depthstencil;
+	_device->GetDepthStencilSurface(&depthstencil);
+
+	if (_brute_force_fix &&
+		_depthstencil_replacement != depthstencil &&
+		_is_good_viewport &&
+		_is_good_depthstencil &&
+		_depth_buffer_table.size() > _preserve_starting_index)
+	{
+		_device->SetDepthStencilSurface(_depthstencil_replacement.get());
+		if (FAILED(_device->DrawPrimitiveUP(PrimitiveType, PrimitiveCount, pVertexStreamZeroData, VertexStreamZeroStride)))
+			return;
+	}
+
+	on_draw_call(depthstencil, PrimitiveType, PrimitiveCount);
+}
+void reshade::d3d9::runtime_d3d9::on_draw_indexed_primitive_up(D3DPRIMITIVETYPE PrimitiveType, UINT MinVertexIndex, UINT NumVertices, UINT PrimitiveCount, const void *pIndexData, D3DFORMAT IndexDataFormat, const void *pVertexStreamZeroData, UINT VertexStreamZeroStride)
+{
+	com_ptr<IDirect3DSurface9> depthstencil;
+	_device->GetDepthStencilSurface(&depthstencil);
+
+	if (_brute_force_fix &&
+		_depthstencil_replacement != depthstencil &&
+		_is_good_viewport &&
+		_is_good_depthstencil &&
+		_depth_buffer_table.size() > _preserve_starting_index)
+	{
+		_device->SetDepthStencilSurface(_depthstencil_replacement.get());
+		if (FAILED(_device->DrawIndexedPrimitiveUP(PrimitiveType, MinVertexIndex, NumVertices, PrimitiveCount, pIndexData, IndexDataFormat, pVertexStreamZeroData, VertexStreamZeroStride)))
+			return;
+	}
+
+	on_draw_call(depthstencil, PrimitiveType, PrimitiveCount);
+}
+void reshade::d3d9::runtime_d3d9::on_draw_call(com_ptr<IDirect3DSurface9> depthstencil, D3DPRIMITIVETYPE type, unsigned int vertices)
 {
 	switch (type)
 	{
-	case D3DPT_LINELIST:
-		vertices *= 2;
-		break;
-	case D3DPT_LINESTRIP:
-		vertices += 1;
-		break;
-	case D3DPT_TRIANGLELIST:
-		vertices *= 3;
-		break;
-	case D3DPT_TRIANGLESTRIP:
-	case D3DPT_TRIANGLEFAN:
-		vertices += 2;
-		break;
+		case D3DPT_LINELIST:
+			vertices *= 2;
+			break;
+		case D3DPT_LINESTRIP:
+			vertices += 1;
+			break;
+		case D3DPT_TRIANGLELIST:
+			vertices *= 3;
+			break;
+		case D3DPT_TRIANGLESTRIP:
+		case D3DPT_TRIANGLEFAN:
+			vertices += 2;
+			break;
 	}
 
 	_vertices += vertices;
 	_drawcalls += 1;
-
-	com_ptr<IDirect3DSurface9> depthstencil;
-	_device->GetDepthStencilSurface(&depthstencil);
 
 	if (depthstencil != nullptr)
 	{
@@ -1260,6 +1331,13 @@ void reshade::d3d9::runtime_d3d9::draw_debug_menu()
 			ImGui::Spacing();
 
 			bool modified = false;
+
+			if (ImGui::Checkbox("Fix for weapons", &_brute_force_fix))
+			{
+				modified = true;
+			}
+
+			ImGui::Spacing();
 
 			if (ImGui::Checkbox("Auto preserve", &_auto_preserve))
 			{
