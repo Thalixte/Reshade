@@ -295,15 +295,26 @@ void reshade::d3d9::runtime_d3d9::on_draw_primitive(D3DPRIMITIVETYPE PrimitiveTy
 	com_ptr<IDirect3DSurface9> depthstencil;
 	_device->GetDepthStencilSurface(&depthstencil);
 
+	if (depthstencil != nullptr)
+	{
+		// Resolve pointer to original depth stencil
+		if (_depthstencil_replacement == depthstencil)
+			depthstencil = _depthstencil;
+	}
+
 	if (_brute_force_fix &&
-		_depthstencil_replacement != depthstencil &&
+		depthstencil != _depthstencil_replacement && 
 		_is_good_viewport &&
 		_is_good_depthstencil &&
 		_depth_buffer_table.size() > _preserve_starting_index)
 	{
+		DWORD zfunc;
+		_device->GetRenderState(D3DRS_ZFUNC, &zfunc);
+		_device->SetRenderState(D3DRS_ZFUNC, D3DCMP_ALWAYS);
 		_device->SetDepthStencilSurface(_depthstencil_replacement.get());
 		if (FAILED(_device->DrawPrimitive(PrimitiveType, StartVertex, PrimitiveCount)))
 			return;
+		_device->SetRenderState(D3DRS_ZFUNC, zfunc);
 	}
 
 	on_draw_call(depthstencil, PrimitiveType, PrimitiveCount);
@@ -313,15 +324,26 @@ void reshade::d3d9::runtime_d3d9::on_draw_indexed_primitive(D3DPRIMITIVETYPE Pri
 	com_ptr<IDirect3DSurface9> depthstencil;
 	_device->GetDepthStencilSurface(&depthstencil);
 
+	if (depthstencil != nullptr)
+	{
+		// Resolve pointer to original depth stencil
+		if (_depthstencil_replacement == depthstencil)
+			depthstencil = _depthstencil;
+	}
+
 	if (_brute_force_fix &&
-		_depthstencil_replacement != depthstencil &&
+		depthstencil != _depthstencil_replacement &&
 		_is_good_viewport &&
 		_is_good_depthstencil &&
 		_depth_buffer_table.size() > _preserve_starting_index)
 	{
+		DWORD zfunc;
+		_device->GetRenderState(D3DRS_ZFUNC, &zfunc);
+		_device->SetRenderState(D3DRS_ZFUNC, D3DCMP_ALWAYS);
 		_device->SetDepthStencilSurface(_depthstencil_replacement.get());
 		if (FAILED(_device->DrawIndexedPrimitive(PrimitiveType, BaseVertexIndex, MinVertexIndex, NumVertices, StartIndex, PrimitiveCount)))
 			return;
+		_device->SetRenderState(D3DRS_ZFUNC, zfunc);
 	}
 
 	on_draw_call(depthstencil, PrimitiveType, PrimitiveCount);
@@ -331,15 +353,26 @@ void reshade::d3d9::runtime_d3d9::on_draw_primitive_up(D3DPRIMITIVETYPE Primitiv
 	com_ptr<IDirect3DSurface9> depthstencil;
 	_device->GetDepthStencilSurface(&depthstencil);
 
+	if (depthstencil != nullptr)
+	{
+		// Resolve pointer to original depth stencil
+		if (_depthstencil_replacement == depthstencil)
+			depthstencil = _depthstencil;
+	}
+
 	if (_brute_force_fix &&
-		_depthstencil_replacement != depthstencil &&
+		depthstencil != _depthstencil_replacement &&
 		_is_good_viewport &&
 		_is_good_depthstencil &&
 		_depth_buffer_table.size() > _preserve_starting_index)
 	{
+		DWORD zfunc;
+		_device->GetRenderState(D3DRS_ZFUNC, &zfunc);
+		_device->SetRenderState(D3DRS_ZFUNC, D3DCMP_ALWAYS);
 		_device->SetDepthStencilSurface(_depthstencil_replacement.get());
 		if (FAILED(_device->DrawPrimitiveUP(PrimitiveType, PrimitiveCount, pVertexStreamZeroData, VertexStreamZeroStride)))
 			return;
+		_device->SetRenderState(D3DRS_ZFUNC, zfunc);
 	}
 
 	on_draw_call(depthstencil, PrimitiveType, PrimitiveCount);
@@ -349,15 +382,26 @@ void reshade::d3d9::runtime_d3d9::on_draw_indexed_primitive_up(D3DPRIMITIVETYPE 
 	com_ptr<IDirect3DSurface9> depthstencil;
 	_device->GetDepthStencilSurface(&depthstencil);
 
+	if (depthstencil != nullptr)
+	{
+		// Resolve pointer to original depth stencil
+		if (_depthstencil_replacement == depthstencil)
+			depthstencil = _depthstencil;
+	}
+
 	if (_brute_force_fix &&
-		_depthstencil_replacement != depthstencil &&
+		depthstencil != _depthstencil_replacement &&
 		_is_good_viewport &&
 		_is_good_depthstencil &&
 		_depth_buffer_table.size() > _preserve_starting_index)
 	{
+		DWORD zfunc;
+		_device->GetRenderState(D3DRS_ZFUNC, &zfunc);
+		_device->SetRenderState(D3DRS_ZFUNC, D3DCMP_ALWAYS);
 		_device->SetDepthStencilSurface(_depthstencil_replacement.get());
 		if (FAILED(_device->DrawIndexedPrimitiveUP(PrimitiveType, MinVertexIndex, NumVertices, PrimitiveCount, pIndexData, IndexDataFormat, pVertexStreamZeroData, VertexStreamZeroStride)))
 			return;
+		_device->SetRenderState(D3DRS_ZFUNC, zfunc);
 	}
 
 	on_draw_call(depthstencil, PrimitiveType, PrimitiveCount);
