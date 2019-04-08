@@ -308,13 +308,22 @@ void reshade::d3d9::runtime_d3d9::on_draw_primitive(D3DPRIMITIVETYPE PrimitiveTy
 		_is_good_depthstencil &&
 		_depth_buffer_table.size() > _preserve_starting_index)
 	{
-		DWORD zfunc;
-		_device->GetRenderState(D3DRS_ZFUNC, &zfunc);
-		_device->SetRenderState(D3DRS_ZFUNC, D3DCMP_ALWAYS);
+		// Globals used for Depth Bias
+		float g_fSlopeScaleDepthBias = 1.0f;
+		float g_fDepthBias = -0.5f;
+
+		DWORD fSlopeScaleDepthBias, fDepthBias;
+		_device->GetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, &fSlopeScaleDepthBias);
+		_device->GetRenderState(D3DRS_DEPTHBIAS, &fDepthBias);
+		_device->SetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, *reinterpret_cast<const DWORD *>(&g_fSlopeScaleDepthBias));
+		_device->SetRenderState(D3DRS_DEPTHBIAS, *reinterpret_cast<const DWORD *>(&g_fDepthBias));
+
 		_device->SetDepthStencilSurface(_depthstencil_replacement.get());
 		if (FAILED(_device->DrawPrimitive(PrimitiveType, StartVertex, PrimitiveCount)))
 			return;
-		_device->SetRenderState(D3DRS_ZFUNC, zfunc);
+
+		_device->SetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, fSlopeScaleDepthBias);
+		_device->SetRenderState(D3DRS_DEPTHBIAS, fDepthBias);
 	}
 
 	on_draw_call(depthstencil, PrimitiveType, PrimitiveCount);
@@ -337,13 +346,22 @@ void reshade::d3d9::runtime_d3d9::on_draw_indexed_primitive(D3DPRIMITIVETYPE Pri
 		_is_good_depthstencil &&
 		_depth_buffer_table.size() > _preserve_starting_index)
 	{
-		DWORD zfunc;
-		_device->GetRenderState(D3DRS_ZFUNC, &zfunc);
-		_device->SetRenderState(D3DRS_ZFUNC, D3DCMP_ALWAYS);
+		// Globals used for Depth Bias
+		float g_fSlopeScaleDepthBias = 1.0f;
+		float g_fDepthBias = -0.5f;
+
+		DWORD fSlopeScaleDepthBias, fDepthBias;
+		_device->GetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, &fSlopeScaleDepthBias);
+		_device->GetRenderState(D3DRS_DEPTHBIAS, &fDepthBias);
+		_device->SetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, *reinterpret_cast<const DWORD *>(&g_fSlopeScaleDepthBias));
+		_device->SetRenderState(D3DRS_DEPTHBIAS, *reinterpret_cast<const DWORD *>(&g_fDepthBias));
+
 		_device->SetDepthStencilSurface(_depthstencil_replacement.get());
 		if (FAILED(_device->DrawIndexedPrimitive(PrimitiveType, BaseVertexIndex, MinVertexIndex, NumVertices, StartIndex, PrimitiveCount)))
 			return;
-		_device->SetRenderState(D3DRS_ZFUNC, zfunc);
+
+		_device->SetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, fSlopeScaleDepthBias);
+		_device->SetRenderState(D3DRS_DEPTHBIAS, fDepthBias);
 	}
 
 	on_draw_call(depthstencil, PrimitiveType, PrimitiveCount);
@@ -366,13 +384,22 @@ void reshade::d3d9::runtime_d3d9::on_draw_primitive_up(D3DPRIMITIVETYPE Primitiv
 		_is_good_depthstencil &&
 		_depth_buffer_table.size() > _preserve_starting_index)
 	{
-		DWORD zfunc;
-		_device->GetRenderState(D3DRS_ZFUNC, &zfunc);
-		_device->SetRenderState(D3DRS_ZFUNC, D3DCMP_ALWAYS);
+		// Globals used for Depth Bias
+		float g_fSlopeScaleDepthBias = 1.0f;
+		float g_fDepthBias = -0.5f;
+
+		DWORD fSlopeScaleDepthBias, fDepthBias;
+		_device->GetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, &fSlopeScaleDepthBias);
+		_device->GetRenderState(D3DRS_DEPTHBIAS, &fDepthBias);
+		_device->SetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, *reinterpret_cast<const DWORD *>(&g_fSlopeScaleDepthBias));
+		_device->SetRenderState(D3DRS_DEPTHBIAS, *reinterpret_cast<const DWORD *>(&g_fDepthBias));
+
 		_device->SetDepthStencilSurface(_depthstencil_replacement.get());
 		if (FAILED(_device->DrawPrimitiveUP(PrimitiveType, PrimitiveCount, pVertexStreamZeroData, VertexStreamZeroStride)))
-			return;
-		_device->SetRenderState(D3DRS_ZFUNC, zfunc);
+		 	return;
+
+		_device->SetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, fSlopeScaleDepthBias);
+		_device->SetRenderState(D3DRS_DEPTHBIAS, fDepthBias);
 	}
 
 	on_draw_call(depthstencil, PrimitiveType, PrimitiveCount);
@@ -395,13 +422,23 @@ void reshade::d3d9::runtime_d3d9::on_draw_indexed_primitive_up(D3DPRIMITIVETYPE 
 		_is_good_depthstencil &&
 		_depth_buffer_table.size() > _preserve_starting_index)
 	{
-		DWORD zfunc;
-		_device->GetRenderState(D3DRS_ZFUNC, &zfunc);
-		_device->SetRenderState(D3DRS_ZFUNC, D3DCMP_ALWAYS);
+
+		// Globals used for Depth Bias
+		float g_fSlopeScaleDepthBias = 1.0f;
+		float g_fDepthBias = -0.5f;
+
+		DWORD fSlopeScaleDepthBias, fDepthBias;
+		_device->GetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, &fSlopeScaleDepthBias);
+		_device->GetRenderState(D3DRS_DEPTHBIAS, &fDepthBias);
+		_device->SetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, *reinterpret_cast<const DWORD *>(&g_fSlopeScaleDepthBias));
+		_device->SetRenderState(D3DRS_DEPTHBIAS, *reinterpret_cast<const DWORD *>(&g_fDepthBias));
+
 		_device->SetDepthStencilSurface(_depthstencil_replacement.get());
 		if (FAILED(_device->DrawIndexedPrimitiveUP(PrimitiveType, MinVertexIndex, NumVertices, PrimitiveCount, pIndexData, IndexDataFormat, pVertexStreamZeroData, VertexStreamZeroStride)))
 			return;
-		_device->SetRenderState(D3DRS_ZFUNC, zfunc);
+
+		_device->SetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, fSlopeScaleDepthBias);
+		_device->SetRenderState(D3DRS_DEPTHBIAS, fDepthBias);
 	}
 
 	on_draw_call(depthstencil, PrimitiveType, PrimitiveCount);
