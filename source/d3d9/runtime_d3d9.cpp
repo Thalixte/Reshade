@@ -505,15 +505,15 @@ void reshade::d3d9::runtime_d3d9::on_draw_call(com_ptr<IDirect3DSurface9> depths
 
 	if (_preserve_depth_buffer && _depthstencil_replacement != nullptr)
 	{
-		_device->SetDepthStencilSurface(depthstencil.get());
-
 		// remove parasite items
 		if (!_is_good_viewport)
 			return;
 
 		// check that the drawcall is done on the good depthstencil (the one from which the depthstencil_replaceent was created)
 		if (!_is_good_depthstencil)
-		 	return;
+			return;
+
+		_device->SetDepthStencilSurface(depthstencil.get());
 
 		_current_db_vertices += vertices,
 		_current_db_drawcalls += 1;
