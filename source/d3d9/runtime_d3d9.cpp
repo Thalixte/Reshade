@@ -308,22 +308,28 @@ void reshade::d3d9::runtime_d3d9::on_draw_primitive(D3DPRIMITIVETYPE PrimitiveTy
 		_is_good_depthstencil &&
 		_depth_buffer_table.size() > _preserve_starting_index)
 	{
-		// Globals used for Depth Bias
-		float g_fSlopeScaleDepthBias = 1.0f;
-		float g_fDepthBias = -0.5f;
+		D3DVIEWPORT9 mViewport; // Holds viewport data
+		D3DVIEWPORT9 mNewViewport; // Holds new viewport data
+		float g_fViewportBias = 0.5f;
 
-		DWORD fSlopeScaleDepthBias, fDepthBias;
-		_device->GetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, &fSlopeScaleDepthBias);
-		_device->GetRenderState(D3DRS_DEPTHBIAS, &fDepthBias);
-		_device->SetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, *reinterpret_cast<const DWORD *>(&g_fSlopeScaleDepthBias));
-		_device->SetRenderState(D3DRS_DEPTHBIAS, *reinterpret_cast<const DWORD *>(&g_fDepthBias));
+		// Viewport work around
+		_device->GetViewport(&mViewport);
+		// Copy old Viewport to new
+		mNewViewport = mViewport;
+
+		// Change by the bias
+		mNewViewport.MinZ -= g_fViewportBias;
+		mNewViewport.MaxZ -= g_fViewportBias;
+
+		// The new viewport is loaded …
+		_device->SetViewport(&mNewViewport);
 
 		_device->SetDepthStencilSurface(_depthstencil_replacement.get());
 		if (FAILED(_device->DrawPrimitive(PrimitiveType, StartVertex, PrimitiveCount)))
 			return;
 
-		_device->SetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, fSlopeScaleDepthBias);
-		_device->SetRenderState(D3DRS_DEPTHBIAS, fDepthBias);
+		// Original viewport is reloaded …
+		_device->SetViewport(&mViewport);
 	}
 
 	on_draw_call(depthstencil, PrimitiveType, PrimitiveCount);
@@ -346,22 +352,28 @@ void reshade::d3d9::runtime_d3d9::on_draw_indexed_primitive(D3DPRIMITIVETYPE Pri
 		_is_good_depthstencil &&
 		_depth_buffer_table.size() > _preserve_starting_index)
 	{
-		// Globals used for Depth Bias
-		float g_fSlopeScaleDepthBias = 1.0f;
-		float g_fDepthBias = -0.5f;
+		D3DVIEWPORT9 mViewport; // Holds viewport data
+		D3DVIEWPORT9 mNewViewport; // Holds new viewport data
+		float g_fViewportBias = 0.5f;
 
-		DWORD fSlopeScaleDepthBias, fDepthBias;
-		_device->GetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, &fSlopeScaleDepthBias);
-		_device->GetRenderState(D3DRS_DEPTHBIAS, &fDepthBias);
-		_device->SetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, *reinterpret_cast<const DWORD *>(&g_fSlopeScaleDepthBias));
-		_device->SetRenderState(D3DRS_DEPTHBIAS, *reinterpret_cast<const DWORD *>(&g_fDepthBias));
+		// Viewport work around
+		_device->GetViewport(&mViewport);
+		// Copy old Viewport to new
+		mNewViewport = mViewport;
+
+		// Change by the bias
+		mNewViewport.MinZ -= g_fViewportBias;
+		mNewViewport.MaxZ -= g_fViewportBias;
+
+		// The new viewport is loaded …
+		_device->SetViewport(&mNewViewport);
 
 		_device->SetDepthStencilSurface(_depthstencil_replacement.get());
 		if (FAILED(_device->DrawIndexedPrimitive(PrimitiveType, BaseVertexIndex, MinVertexIndex, NumVertices, StartIndex, PrimitiveCount)))
 			return;
 
-		_device->SetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, fSlopeScaleDepthBias);
-		_device->SetRenderState(D3DRS_DEPTHBIAS, fDepthBias);
+		// Original viewport is reloaded …
+		_device->SetViewport(&mViewport);
 	}
 
 	on_draw_call(depthstencil, PrimitiveType, PrimitiveCount);
@@ -384,22 +396,28 @@ void reshade::d3d9::runtime_d3d9::on_draw_primitive_up(D3DPRIMITIVETYPE Primitiv
 		_is_good_depthstencil &&
 		_depth_buffer_table.size() > _preserve_starting_index)
 	{
-		// Globals used for Depth Bias
-		float g_fSlopeScaleDepthBias = 1.0f;
-		float g_fDepthBias = -0.5f;
+		D3DVIEWPORT9 mViewport; // Holds viewport data
+		D3DVIEWPORT9 mNewViewport; // Holds new viewport data
+		float g_fViewportBias = 0.5f;
 
-		DWORD fSlopeScaleDepthBias, fDepthBias;
-		_device->GetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, &fSlopeScaleDepthBias);
-		_device->GetRenderState(D3DRS_DEPTHBIAS, &fDepthBias);
-		_device->SetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, *reinterpret_cast<const DWORD *>(&g_fSlopeScaleDepthBias));
-		_device->SetRenderState(D3DRS_DEPTHBIAS, *reinterpret_cast<const DWORD *>(&g_fDepthBias));
+		// Viewport work around
+		_device->GetViewport(&mViewport);
+		// Copy old Viewport to new
+		mNewViewport = mViewport;
+
+		// Change by the bias
+		mNewViewport.MinZ -= g_fViewportBias;
+		mNewViewport.MaxZ -= g_fViewportBias;
+
+		// The new viewport is loaded …
+		_device->SetViewport(&mNewViewport);
 
 		_device->SetDepthStencilSurface(_depthstencil_replacement.get());
 		if (FAILED(_device->DrawPrimitiveUP(PrimitiveType, PrimitiveCount, pVertexStreamZeroData, VertexStreamZeroStride)))
 		 	return;
 
-		_device->SetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, fSlopeScaleDepthBias);
-		_device->SetRenderState(D3DRS_DEPTHBIAS, fDepthBias);
+		// Original viewport is reloaded …
+		_device->SetViewport(&mViewport);
 	}
 
 	on_draw_call(depthstencil, PrimitiveType, PrimitiveCount);
@@ -422,23 +440,28 @@ void reshade::d3d9::runtime_d3d9::on_draw_indexed_primitive_up(D3DPRIMITIVETYPE 
 		_is_good_depthstencil &&
 		_depth_buffer_table.size() > _preserve_starting_index)
 	{
+		D3DVIEWPORT9 mViewport; // Holds viewport data
+		D3DVIEWPORT9 mNewViewport; // Holds new viewport data
+		float g_fViewportBias = 0.5f;
 
-		// Globals used for Depth Bias
-		float g_fSlopeScaleDepthBias = 1.0f;
-		float g_fDepthBias = -0.5f;
+		// Viewport work around
+		_device->GetViewport(&mViewport);
+		// Copy old Viewport to new
+		mNewViewport = mViewport;
 
-		DWORD fSlopeScaleDepthBias, fDepthBias;
-		_device->GetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, &fSlopeScaleDepthBias);
-		_device->GetRenderState(D3DRS_DEPTHBIAS, &fDepthBias);
-		_device->SetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, *reinterpret_cast<const DWORD *>(&g_fSlopeScaleDepthBias));
-		_device->SetRenderState(D3DRS_DEPTHBIAS, *reinterpret_cast<const DWORD *>(&g_fDepthBias));
+		// Change by the bias
+		mNewViewport.MinZ -= g_fViewportBias;
+		mNewViewport.MaxZ -= g_fViewportBias;
+
+		// The new viewport is loaded …
+		_device->SetViewport(&mNewViewport);
 
 		_device->SetDepthStencilSurface(_depthstencil_replacement.get());
 		if (FAILED(_device->DrawIndexedPrimitiveUP(PrimitiveType, MinVertexIndex, NumVertices, PrimitiveCount, pIndexData, IndexDataFormat, pVertexStreamZeroData, VertexStreamZeroStride)))
 			return;
 
-		_device->SetRenderState(D3DRS_SLOPESCALEDEPTHBIAS, fSlopeScaleDepthBias);
-		_device->SetRenderState(D3DRS_DEPTHBIAS, fDepthBias);
+		// Original viewport is reloaded …
+		_device->SetViewport(&mViewport);
 	}
 
 	on_draw_call(depthstencil, PrimitiveType, PrimitiveCount);
