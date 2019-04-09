@@ -295,8 +295,6 @@ void reshade::d3d9::runtime_d3d9::on_draw_primitive(D3DPRIMITIVETYPE PrimitiveTy
 	com_ptr<IDirect3DSurface9> depthstencil;
 	_device->GetDepthStencilSurface(&depthstencil);
 
-	bool _drawn = false;
-
 	if (depthstencil != nullptr)
 	{
 		// Resolve pointer to original depth stencil
@@ -305,7 +303,7 @@ void reshade::d3d9::runtime_d3d9::on_draw_primitive(D3DPRIMITIVETYPE PrimitiveTy
 	}
 
 	if (_brute_force_fix &&
-		depthstencil != _depthstencil_replacement && 
+		depthstencil != _depthstencil_replacement &&
 		_is_good_viewport &&
 		_is_good_depthstencil &&
 		_depth_buffer_table.size() > _preserve_starting_index)
@@ -330,23 +328,16 @@ void reshade::d3d9::runtime_d3d9::on_draw_primitive(D3DPRIMITIVETYPE PrimitiveTy
 		if (FAILED(_device->DrawPrimitive(PrimitiveType, StartVertex, PrimitiveCount)))
 			return;
 
-		_drawn = true;
-
 		// Original viewport is reloaded …
 		_device->SetViewport(&mViewport);
 	}
 
 	on_draw_call(depthstencil, PrimitiveType, PrimitiveCount);
-
-	if (!_drawn)
-		_device->DrawPrimitive(PrimitiveType, StartVertex, PrimitiveCount);
 }
 void reshade::d3d9::runtime_d3d9::on_draw_indexed_primitive(D3DPRIMITIVETYPE PrimitiveType, INT BaseVertexIndex, UINT MinVertexIndex, UINT NumVertices, UINT StartIndex, UINT PrimitiveCount)
 {
 	com_ptr<IDirect3DSurface9> depthstencil;
 	_device->GetDepthStencilSurface(&depthstencil);
-
-	bool _drawn = false;
 
 	if (depthstencil != nullptr)
 	{
@@ -381,23 +372,16 @@ void reshade::d3d9::runtime_d3d9::on_draw_indexed_primitive(D3DPRIMITIVETYPE Pri
 		if (FAILED(_device->DrawIndexedPrimitive(PrimitiveType, BaseVertexIndex, MinVertexIndex, NumVertices, StartIndex, PrimitiveCount)))
 			return;
 
-		_drawn = true;
-
 		// Original viewport is reloaded …
 		_device->SetViewport(&mViewport);
 	}
 
 	on_draw_call(depthstencil, PrimitiveType, PrimitiveCount);
-
-	if (!_drawn)
-		_device->DrawIndexedPrimitive(PrimitiveType, BaseVertexIndex, MinVertexIndex, NumVertices, StartIndex, PrimitiveCount);
 }
 void reshade::d3d9::runtime_d3d9::on_draw_primitive_up(D3DPRIMITIVETYPE PrimitiveType, UINT PrimitiveCount, const void *pVertexStreamZeroData, UINT VertexStreamZeroStride)
 {
 	com_ptr<IDirect3DSurface9> depthstencil;
 	_device->GetDepthStencilSurface(&depthstencil);
-
-	bool _drawn = false;
 
 	if (depthstencil != nullptr)
 	{
@@ -430,25 +414,18 @@ void reshade::d3d9::runtime_d3d9::on_draw_primitive_up(D3DPRIMITIVETYPE Primitiv
 
 		_device->SetDepthStencilSurface(_depthstencil_replacement.get());
 		if (FAILED(_device->DrawPrimitiveUP(PrimitiveType, PrimitiveCount, pVertexStreamZeroData, VertexStreamZeroStride)))
-		 	return;
-
-		_drawn = true;
+			return;
 
 		// Original viewport is reloaded …
 		_device->SetViewport(&mViewport);
 	}
 
 	on_draw_call(depthstencil, PrimitiveType, PrimitiveCount);
-
-	if (!_drawn)
-		_device->DrawPrimitiveUP(PrimitiveType, PrimitiveCount, pVertexStreamZeroData, VertexStreamZeroStride);
 }
 void reshade::d3d9::runtime_d3d9::on_draw_indexed_primitive_up(D3DPRIMITIVETYPE PrimitiveType, UINT MinVertexIndex, UINT NumVertices, UINT PrimitiveCount, const void *pIndexData, D3DFORMAT IndexDataFormat, const void *pVertexStreamZeroData, UINT VertexStreamZeroStride)
 {
 	com_ptr<IDirect3DSurface9> depthstencil;
 	_device->GetDepthStencilSurface(&depthstencil);
-
-	bool _drawn = false;
 
 	if (depthstencil != nullptr)
 	{
@@ -483,34 +460,29 @@ void reshade::d3d9::runtime_d3d9::on_draw_indexed_primitive_up(D3DPRIMITIVETYPE 
 		if (FAILED(_device->DrawIndexedPrimitiveUP(PrimitiveType, MinVertexIndex, NumVertices, PrimitiveCount, pIndexData, IndexDataFormat, pVertexStreamZeroData, VertexStreamZeroStride)))
 			return;
 
-		_drawn = true;
-
 		// Original viewport is reloaded …
 		_device->SetViewport(&mViewport);
 	}
 
 	on_draw_call(depthstencil, PrimitiveType, PrimitiveCount);
-
-	if (!_drawn)
-		_device->DrawIndexedPrimitiveUP(PrimitiveType, MinVertexIndex, NumVertices, PrimitiveCount, pIndexData, IndexDataFormat, pVertexStreamZeroData, VertexStreamZeroStride);
 }
 void reshade::d3d9::runtime_d3d9::on_draw_call(com_ptr<IDirect3DSurface9> depthstencil, D3DPRIMITIVETYPE type, unsigned int vertices)
 {
 	switch (type)
 	{
-		case D3DPT_LINELIST:
-			vertices *= 2;
-			break;
-		case D3DPT_LINESTRIP:
-			vertices += 1;
-			break;
-		case D3DPT_TRIANGLELIST:
-			vertices *= 3;
-			break;
-		case D3DPT_TRIANGLESTRIP:
-		case D3DPT_TRIANGLEFAN:
-			vertices += 2;
-			break;
+	case D3DPT_LINELIST:
+		vertices *= 2;
+		break;
+	case D3DPT_LINESTRIP:
+		vertices += 1;
+		break;
+	case D3DPT_TRIANGLELIST:
+		vertices *= 3;
+		break;
+	case D3DPT_TRIANGLESTRIP:
+	case D3DPT_TRIANGLEFAN:
+		vertices += 2;
+		break;
 	}
 
 	_vertices += vertices;
@@ -544,7 +516,7 @@ void reshade::d3d9::runtime_d3d9::on_draw_call(com_ptr<IDirect3DSurface9> depths
 		_device->SetDepthStencilSurface(depthstencil.get());
 
 		_current_db_vertices += vertices,
-		_current_db_drawcalls += 1;
+			_current_db_drawcalls += 1;
 
 		if (_depthstencil_replacement != depthstencil && _depth_buffer_table.size() <= _preserve_starting_index)
 			_device->SetDepthStencilSurface(_depthstencil_replacement.get());
@@ -1661,10 +1633,10 @@ bool reshade::d3d9::runtime_d3d9::create_depthstencil_replacement(const com_ptr<
 
 		if (_preserve_depth_buffer ||
 			(!_disable_intz &&
-			desc.Format != D3DFMT_INTZ &&
-			desc.Format != D3DFMT_DF16 &&
-			desc.Format != D3DFMT_DF24)
-		)
+				desc.Format != D3DFMT_INTZ &&
+				desc.Format != D3DFMT_DF16 &&
+				desc.Format != D3DFMT_DF24)
+			)
 		{
 			D3DDISPLAYMODE displaymode;
 			_swapchain->GetDisplayMode(&displaymode);
@@ -1707,7 +1679,7 @@ bool reshade::d3d9::runtime_d3d9::create_depthstencil_replacement(const com_ptr<
 			if (!_preserve_depth_buffer && current_depthstencil != nullptr && current_depthstencil == _depthstencil)
 				_device->SetDepthStencilSurface(_depthstencil_replacement.get());
 		}
-		else 
+		else
 		{
 			_depthstencil_replacement = _depthstencil;
 
