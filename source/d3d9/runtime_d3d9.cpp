@@ -324,20 +324,9 @@ void reshade::d3d9::runtime_d3d9::on_draw_primitive(D3DPRIMITIVETYPE PrimitiveTy
 		// The new viewport is loaded …
 		_device->SetViewport(&mNewViewport);
 
-		DWORD target;
-
-		com_ptr<IDirect3DSurface9> current_backbuffer;
-		_device->GetRenderTarget(0, &current_backbuffer);
-
-		for (target = 0; target < _num_simultaneous_rendertargets; target++)
-			_device->SetRenderTarget(target, nullptr);
 		_device->SetDepthStencilSurface(_depthstencil_replacement.get());
 		if (FAILED(_device->DrawPrimitive(PrimitiveType, StartVertex, PrimitiveCount)))
 			return;
-
-		_device->SetRenderTarget(0, current_backbuffer.get());
-		for (target = 1; target < _num_simultaneous_rendertargets; target++)
-			_device->SetRenderTarget(target, nullptr);
 
 		// Original viewport is reloaded …
 		_device->SetViewport(&mViewport);
@@ -379,21 +368,9 @@ void reshade::d3d9::runtime_d3d9::on_draw_indexed_primitive(D3DPRIMITIVETYPE Pri
 		// The new viewport is loaded …
 		_device->SetViewport(&mNewViewport);
 
-		DWORD target;
-
-		com_ptr<IDirect3DSurface9> current_backbuffer;
-		_device->GetRenderTarget(0, &current_backbuffer);
-
-		for (target = 0; target < _num_simultaneous_rendertargets; target++)
-			_device->SetRenderTarget(target, nullptr);
-
 		_device->SetDepthStencilSurface(_depthstencil_replacement.get());
 		if (FAILED(_device->DrawIndexedPrimitive(PrimitiveType, BaseVertexIndex, MinVertexIndex, NumVertices, StartIndex, PrimitiveCount)))
 			return;
-
-		_device->SetRenderTarget(0, current_backbuffer.get());
-		for (target = 1; target < _num_simultaneous_rendertargets; target++)
-			_device->SetRenderTarget(target, nullptr);
 
 		// Original viewport is reloaded …
 		_device->SetViewport(&mViewport);
@@ -406,107 +383,12 @@ void reshade::d3d9::runtime_d3d9::on_draw_primitive_up(D3DPRIMITIVETYPE Primitiv
 	com_ptr<IDirect3DSurface9> depthstencil;
 	_device->GetDepthStencilSurface(&depthstencil);
 
-	if (depthstencil != nullptr)
-	{
-		// Resolve pointer to original depth stencil
-		if (_depthstencil_replacement == depthstencil)
-			depthstencil = _depthstencil;
-	}
-
-	if (_brute_force_fix &&
-		depthstencil != _depthstencil_replacement &&
-		_is_good_viewport &&
-		_is_good_depthstencil &&
-		_depth_buffer_table.size() > _preserve_starting_index)
-	{
-		D3DVIEWPORT9 mViewport; // Holds viewport data
-		D3DVIEWPORT9 mNewViewport; // Holds new viewport data
-		float g_fViewportBias = 0.5f;
-
-		// Viewport work around
-		_device->GetViewport(&mViewport);
-		// Copy old Viewport to new
-		mNewViewport = mViewport;
-
-		// Change by the bias
-		mNewViewport.MinZ -= g_fViewportBias;
-		mNewViewport.MaxZ -= g_fViewportBias;
-
-		// The new viewport is loaded …
-		_device->SetViewport(&mNewViewport);
-
-		DWORD target;
-
-		com_ptr<IDirect3DSurface9> current_backbuffer;
-		_device->GetRenderTarget(0, &current_backbuffer);
-
-		for (target = 0; target < _num_simultaneous_rendertargets; target++)
-			_device->SetRenderTarget(target, nullptr);
-
-		_device->SetDepthStencilSurface(_depthstencil_replacement.get());
-		if (FAILED(_device->DrawPrimitiveUP(PrimitiveType, PrimitiveCount, pVertexStreamZeroData, VertexStreamZeroStride)))
-			return;
-
-		_device->SetRenderTarget(0, current_backbuffer.get());
-		for (target = 1; target < _num_simultaneous_rendertargets; target++)
-			_device->SetRenderTarget(target, nullptr);
-
-		// Original viewport is reloaded …
-		_device->SetViewport(&mViewport);
-	}
-
 	on_draw_call(depthstencil, PrimitiveType, PrimitiveCount);
 }
 void reshade::d3d9::runtime_d3d9::on_draw_indexed_primitive_up(D3DPRIMITIVETYPE PrimitiveType, UINT MinVertexIndex, UINT NumVertices, UINT PrimitiveCount, const void *pIndexData, D3DFORMAT IndexDataFormat, const void *pVertexStreamZeroData, UINT VertexStreamZeroStride)
 {
 	com_ptr<IDirect3DSurface9> depthstencil;
 	_device->GetDepthStencilSurface(&depthstencil);
-
-	if (depthstencil != nullptr)
-	{
-		// Resolve pointer to original depth stencil
-		if (_depthstencil_replacement == depthstencil)
-			depthstencil = _depthstencil;
-	}
-
-	if (_brute_force_fix &&
-		_depth_buffer_table.size() > _preserve_starting_index)
-	{
-		D3DVIEWPORT9 mViewport; // Holds viewport data
-		D3DVIEWPORT9 mNewViewport; // Holds new viewport data
-		float g_fViewportBias = 0.5f;
-
-		// Viewport work around
-		_device->GetViewport(&mViewport);
-		// Copy old Viewport to new
-		mNewViewport = mViewport;
-
-		// Change by the bias
-		mNewViewport.MinZ -= g_fViewportBias;
-		mNewViewport.MaxZ -= g_fViewportBias;
-
-		// The new viewport is loaded …
-		_device->SetViewport(&mNewViewport);
-
-		DWORD target;
-
-		com_ptr<IDirect3DSurface9> current_backbuffer;
-		_device->GetRenderTarget(0, &current_backbuffer);
-
-		for (target = 0; target < _num_simultaneous_rendertargets; target++)
-			_device->SetRenderTarget(target, nullptr);
-
-		_device->SetDepthStencilSurface(_depthstencil_replacement.get());
-		if (FAILED(_device->DrawIndexedPrimitiveUP(PrimitiveType, MinVertexIndex, NumVertices, PrimitiveCount, pIndexData, IndexDataFormat, pVertexStreamZeroData, VertexStreamZeroStride)))
-			return;
-
-		_device->SetRenderTarget(0, current_backbuffer.get());
-		for (target = 1; target < _num_simultaneous_rendertargets; target++)
-			_device->SetRenderTarget(target, nullptr);
-
-		// Original viewport is reloaded …
-		_device->SetViewport(&mViewport);
-	}
 
 	on_draw_call(depthstencil, PrimitiveType, PrimitiveCount);
 }
