@@ -81,7 +81,6 @@ namespace reshade::d3d9
 		com_ptr<IDirect3DSurface9> _backbuffer_resolved;
 		com_ptr<IDirect3DTexture9> _backbuffer_texture;
 		com_ptr<IDirect3DSurface9> _backbuffer_texture_surface;
-		com_ptr<IDirect3DSurface9> _backbuffer_db_fix;
 		com_ptr<IDirect3DTexture9> _depthstencil_texture;
 
 		unsigned int _num_samplers;
