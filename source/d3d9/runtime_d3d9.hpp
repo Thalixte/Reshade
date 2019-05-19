@@ -89,12 +89,13 @@ namespace reshade::d3d9
 		bool _disable_intz = false;
 		bool _preserve_depth_buffer = false;
 		bool _auto_preserve = true;
+		bool _focus_on_best_original_depthstencil_source = false;
 		size_t _preserve_starting_index = 0;
 		bool _brute_force_fix = false;
 		bool _disable_depth_buffer_size_restriction = false;
 		bool _init_depthbuffer_detection = true;
 		bool _is_good_viewport = true;
-		bool _is_good_depthstencil = true;
+		bool _is_best_original_depthstencil_source = true;
 		unsigned int _db_vertices = 0;
 		unsigned int _db_drawcalls = 0;
 		unsigned int _current_db_vertices = 0;

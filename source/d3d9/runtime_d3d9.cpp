@@ -76,6 +76,7 @@ reshade::d3d9::runtime_d3d9::runtime_d3d9(IDirect3DDevice9 *device, IDirect3DSwa
 		config.get("DX9_BUFFER_DETECTION", "PreserveDepthBuffer", _preserve_depth_buffer);
 		config.get("DX9_BUFFER_DETECTION", "PreserveDepthBufferIndex", _preserve_starting_index);
 		config.get("DX9_BUFFER_DETECTION", "AutoPreserve", _auto_preserve);
+		config.get("DX9_BUFFER_DETECTION", "FocusOnBestOriginalDepthstencilSource", _focus_on_best_original_depthstencil_source);
 		config.get("DX9_BUFFER_DETECTION", "BruteForceFix", _brute_force_fix);
 	});
 	subscribe_to_save_config([this](ini_file &config) {
@@ -83,6 +84,7 @@ reshade::d3d9::runtime_d3d9::runtime_d3d9(IDirect3DDevice9 *device, IDirect3DSwa
 		config.set("DX9_BUFFER_DETECTION", "PreserveDepthBuffer", _preserve_depth_buffer);
 		config.set("DX9_BUFFER_DETECTION", "PreserveDepthBufferIndex", _preserve_starting_index);
 		config.set("DX9_BUFFER_DETECTION", "AutoPreserve", _auto_preserve);
+		config.set("DX9_BUFFER_DETECTION", "FocusOnBestOriginalDepthstencilSource", _focus_on_best_original_depthstencil_source);
 		config.set("DX9_BUFFER_DETECTION", "BruteForceFix", _brute_force_fix);
 	});
 }
@@ -302,17 +304,18 @@ void reshade::d3d9::runtime_d3d9::on_draw_primitive(D3DPRIMITIVETYPE PrimitiveTy
 			depthstencil = _depthstencil;
 	}
 
+	// fix to display user weapon and cockpit in some games
 	if (_brute_force_fix &&
 		depthstencil != _depthstencil_replacement &&
 		_is_good_viewport &&
-		_is_good_depthstencil &&
+		_is_best_original_depthstencil_source &&
 		_depth_buffer_table.size() > _preserve_starting_index)
 	{
 		D3DVIEWPORT9 mViewport; // Holds viewport data
 		D3DVIEWPORT9 mNewViewport; // Holds new viewport data
 		float g_fViewportBias = 0.5f;
 
-		// Viewport work around
+		// Viewport work around (help resolving z-fighting issues)
 		_device->GetViewport(&mViewport);
 		// Copy old Viewport to new
 		mNewViewport = mViewport;
@@ -321,14 +324,14 @@ void reshade::d3d9::runtime_d3d9::on_draw_primitive(D3DPRIMITIVETYPE PrimitiveTy
 		mNewViewport.MinZ -= g_fViewportBias;
 		mNewViewport.MaxZ -= g_fViewportBias;
 
-		// The new viewport is loaded …
+		// The new viewport is loaded
 		_device->SetViewport(&mNewViewport);
 
 		_device->SetDepthStencilSurface(_depthstencil_replacement.get());
 		if (FAILED(_device->DrawPrimitive(PrimitiveType, StartVertex, PrimitiveCount)))
 			return;
 
-		// Original viewport is reloaded …
+		// Original viewport is reloaded
 		_device->SetViewport(&mViewport);
 	}
 
@@ -346,17 +349,18 @@ void reshade::d3d9::runtime_d3d9::on_draw_indexed_primitive(D3DPRIMITIVETYPE Pri
 			depthstencil = _depthstencil;
 	}
 
+	// fix to display user weapon and cockpit in some games
 	if (_brute_force_fix &&
 		depthstencil != _depthstencil_replacement &&
 		_is_good_viewport &&
-		_is_good_depthstencil &&
+		_is_best_original_depthstencil_source &&
 		_depth_buffer_table.size() > _preserve_starting_index)
 	{
 		D3DVIEWPORT9 mViewport; // Holds viewport data
 		D3DVIEWPORT9 mNewViewport; // Holds new viewport data
 		float g_fViewportBias = 0.5f;
 
-		// Viewport work around
+		// Viewport work around (help resolving z-fighting issues)
 		_device->GetViewport(&mViewport);
 		// Copy old Viewport to new
 		mNewViewport = mViewport;
@@ -365,14 +369,14 @@ void reshade::d3d9::runtime_d3d9::on_draw_indexed_primitive(D3DPRIMITIVETYPE Pri
 		mNewViewport.MinZ -= g_fViewportBias;
 		mNewViewport.MaxZ -= g_fViewportBias;
 
-		// The new viewport is loaded …
+		// The new viewport is loaded
 		_device->SetViewport(&mNewViewport);
 
 		_device->SetDepthStencilSurface(_depthstencil_replacement.get());
 		if (FAILED(_device->DrawIndexedPrimitive(PrimitiveType, BaseVertexIndex, MinVertexIndex, NumVertices, StartIndex, PrimitiveCount)))
 			return;
 
-		// Original viewport is reloaded …
+		// Original viewport is reloaded
 		_device->SetViewport(&mViewport);
 	}
 
@@ -439,7 +443,7 @@ void reshade::d3d9::runtime_d3d9::on_draw_call(com_ptr<IDirect3DSurface9> depths
 		_current_db_drawcalls += 1;
 
 		// check that the drawcall is done on the good depthstencil (the one from which the depthstencil_replaceent was created)
-		if (!_is_good_depthstencil)
+		if (!_is_best_original_depthstencil_source)
 			return;
 
 		_device->SetDepthStencilSurface(depthstencil.get());
@@ -450,7 +454,7 @@ void reshade::d3d9::runtime_d3d9::on_draw_call(com_ptr<IDirect3DSurface9> depths
 }
 void reshade::d3d9::runtime_d3d9::on_set_depthstencil_surface(IDirect3DSurface9 *&depthstencil)
 {
-	_is_good_depthstencil = (depthstencil == _depthstencil);
+	_is_best_original_depthstencil_source = !_focus_on_best_original_depthstencil_source || (depthstencil == _depthstencil);
 
 	// Keep track of all used depth stencil surfaces
 	if (_depth_source_table.find(depthstencil) == _depth_source_table.end())
@@ -476,13 +480,16 @@ void reshade::d3d9::runtime_d3d9::on_clear_depthstencil_surface(IDirect3DSurface
 	if (!_preserve_depth_buffer || depthstencil != _depthstencil_replacement)
 		return;
 
+	const unsigned int min_db_drawcalls = 1;
+	const unsigned int min_db_vertices = 6;
+
 	D3DSURFACE_DESC desc;
 	depthstencil->GetDesc(&desc);
 	if (!check_depthstencil_size(desc)) // Ignore unlikely candidates
 		return;
 
 	// Check if any draw calls have been registered since the last clear operation
-	if (_current_db_drawcalls > 0 && _current_db_vertices > 0)
+	if (_current_db_drawcalls > min_db_drawcalls && _current_db_vertices > min_db_vertices)
 	{	
 		_depth_buffer_table.push_back({
 			_depthstencil_replacement,
@@ -1362,10 +1369,21 @@ void reshade::d3d9::runtime_d3d9::draw_debug_menu()
 
 			bool modified = false;
 
-			if (ImGui::Checkbox("Fix for weapons", &_brute_force_fix))
+			// this feature can help resolving weapons or cockpits not appearing in the depth buffer
+			if (ImGui::Checkbox("Focus on the best original depthstencil source", &_focus_on_best_original_depthstencil_source))
 			{
 				modified = true;
 			}
+			ImGui::Text("Tip: in some games, can help removing undesired UI elements from the depth buffer");
+
+			ImGui::Spacing();
+
+			// this feature can help resolving user weapon or cockpit not appearing in the depth buffer
+			if (ImGui::Checkbox("Fix for user weapon or cockpit", &_brute_force_fix))
+			{
+				modified = true;
+			}
+			ImGui::Text("Tip: in some games, can help user weapon or cockpit appear correctly in the depth buffer");
 
 			ImGui::Spacing();
 
