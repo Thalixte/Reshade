@@ -3,8 +3,11 @@
  * License: https://github.com/crosire/reshade#license
  */
 
+#pragma once
+
 #include "log.hpp"
 #include "d3d10_device.hpp"
+#include "dxgi/format_utils.hpp"
 #include "../dxgi/dxgi_device.hpp"
 #include "runtime_d3d10.hpp"
 
@@ -319,6 +322,24 @@ void    STDMETHODCALLTYPE D3D10Device::ClearDepthStencilView(ID3D10DepthStencilV
 		track_cleared_depthstencil(pDepthStencilView);
 #endif
 	_orig->ClearDepthStencilView(pDepthStencilView, ClearFlags, Depth, Stencil);
+
+#if RESHADE_DX10_CAPTURE_DEPTH_BUFFERS
+	if (ClearFlags & D3D10_CLEAR_DEPTH)
+	{
+		ID3D10Texture2D *const background_depth_buffer_texture_texture = _draw_call_tracker.find_best_cleared_depth_buffer_texture(runtime->cleared_primary_depth_buffer_index, runtime->cleared_secondary_depth_buffer_index, true);
+		if (background_depth_buffer_texture_texture != nullptr)
+		{
+			D3D10_TEXTURE2D_DESC tex_desc;
+			background_depth_buffer_texture_texture->GetDesc(&tex_desc);
+			D3D10_DEPTH_STENCIL_VIEW_DESC dsv_desc = {};
+			dsv_desc.ViewDimension = D3D10_DSV_DIMENSION_TEXTURE2D;
+			dsv_desc.Format = make_dxgi_format_dsv(tex_desc.Format);
+
+			runtime->_depthstencil_replacement.reset();
+			CreateDepthStencilView(background_depth_buffer_texture_texture, &dsv_desc, &runtime->_depthstencil_replacement);
+		}
+	}		
+#endif
 }
 void    STDMETHODCALLTYPE D3D10Device::GenerateMips(ID3D10ShaderResourceView *pShaderResourceView)
 {

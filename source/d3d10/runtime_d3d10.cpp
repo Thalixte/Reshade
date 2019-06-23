@@ -354,14 +354,14 @@ void reshade::d3d10::runtime_d3d10::on_present(draw_call_tracker &tracker)
 }
 void reshade::d3d10::runtime_d3d10::on_set_depthstencil_view(ID3D10DepthStencilView *&depthstencil)
 {
-	if (_depthstencil_texture_desc_changed && _depthstencil_replacement != nullptr && depthstencil == _depthstencil)
+	if ((_depthstencil_texture_desc_changed || cleared_secondary_depth_buffer_index > 0) && _depthstencil_replacement != nullptr && depthstencil == _depthstencil)
 	{
 		depthstencil = _depthstencil_replacement.get();
 	}
 }
 void reshade::d3d10::runtime_d3d10::on_get_depthstencil_view(ID3D10DepthStencilView *&depthstencil)
 {
-	if (_depthstencil_texture_desc_changed && _depthstencil_replacement != nullptr && depthstencil == _depthstencil_replacement)
+	if ((_depthstencil_texture_desc_changed || cleared_secondary_depth_buffer_index > 0) && _depthstencil_replacement != nullptr && depthstencil == _depthstencil_replacement)
 	{
 		depthstencil->Release();
 
@@ -372,7 +372,7 @@ void reshade::d3d10::runtime_d3d10::on_get_depthstencil_view(ID3D10DepthStencilV
 }
 void reshade::d3d10::runtime_d3d10::on_clear_depthstencil_view(ID3D10DepthStencilView *&depthstencil)
 {
-	if (_depthstencil_texture_desc_changed && _depthstencil_replacement != nullptr && depthstencil == _depthstencil)
+	if ((_depthstencil_texture_desc_changed || cleared_secondary_depth_buffer_index > 0) && _depthstencil_replacement != nullptr && depthstencil == _depthstencil)
 	{
 		depthstencil = _depthstencil_replacement.get();
 	}

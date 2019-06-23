@@ -26,6 +26,7 @@ namespace reshade::d3d10
 		void on_set_depthstencil_view(ID3D10DepthStencilView *&depthstencil);
 		void on_get_depthstencil_view(ID3D10DepthStencilView *&depthstencil);
 		void on_clear_depthstencil_view(ID3D10DepthStencilView *&depthstencil);
+		com_ptr<ID3D10DepthStencilView> _depthstencil, _depthstencil_replacement;
 
 		void capture_screenshot(uint8_t *buffer) const override;
 
@@ -92,7 +93,6 @@ namespace reshade::d3d10
 		DXGI_FORMAT _backbuffer_format = DXGI_FORMAT_UNKNOWN;
 		state_block _app_state;
 		com_ptr<ID3D10Texture2D> _backbuffer, _backbuffer_resolved;
-		com_ptr<ID3D10DepthStencilView> _depthstencil, _depthstencil_replacement;
 		ID3D10DepthStencilView *_best_depthstencil_overwrite = nullptr;
 		com_ptr<ID3D10Texture2D> _depthstencil_texture;
 		com_ptr<ID3D10DepthStencilView> _default_depthstencil;
