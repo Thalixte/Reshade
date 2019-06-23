@@ -243,7 +243,7 @@ namespace reshade::d3d10
 		}
 	}
 
-	ID3D10Texture2D *draw_call_tracker::find_best_cleared_depth_buffer_texture(UINT clear_index)
+	ID3D10Texture2D *draw_call_tracker::find_best_cleared_depth_buffer_texture(UINT primary_clear_index, UINT secondary_clear_index, bool force_primary)
 	{
 		// Function that selects the best cleared depth texture according to the clearing number defined in the configuration settings
 		ID3D10Texture2D *best_match = nullptr;
@@ -260,6 +260,8 @@ namespace reshade::d3d10
 			if (texture_counter_info.dest_texture == nullptr)
 				continue;
 			texture = texture_counter_info.dest_texture;
+			UINT clear_index = (secondary_clear_index > 0 ? secondary_clear_index : primary_clear_index);
+			clear_index = (force_primary ? primary_clear_index : clear_index);
 
 			if (clear_index != 0 && i > clear_index)
 				continue;

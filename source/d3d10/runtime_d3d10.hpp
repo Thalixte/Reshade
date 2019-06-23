@@ -33,9 +33,10 @@ namespace reshade::d3d10
 		com_ptr<ID3D10Texture2D> select_depth_texture_save(D3D10_TEXTURE2D_DESC texture_desc);
 #endif
 
-		bool depth_buffer_before_clear = false;
+		bool _preserve_depth_buffer = false;
 		bool extended_depth_buffer_detection = false;
-		unsigned int cleared_depth_buffer_index = 0;
+		unsigned int cleared_primary_depth_buffer_index = 0;
+		unsigned int cleared_secondary_depth_buffer_index = 0;
 		int depth_buffer_texture_format = 0; // No depth buffer texture format filter by default
 
 	private:

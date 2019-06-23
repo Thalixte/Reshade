@@ -55,7 +55,7 @@ namespace reshade::d3d10
 		void keep_cleared_depth_textures();
 
 		intermediate_snapshot_info find_best_snapshot(UINT width, UINT height);
-		ID3D10Texture2D *find_best_cleared_depth_buffer_texture(UINT clear_index);
+		ID3D10Texture2D *find_best_cleared_depth_buffer_texture(UINT primary_clear_index, UINT secondary_clear_index, bool force_primary = false);
 #endif
 
 	private:

@@ -29,7 +29,7 @@ bool D3D10Device::save_depth_texture(ID3D10DepthStencilView *pDepthStencilView, 
 
 	const auto runtime = _runtimes.front();
 
-	if (!runtime->depth_buffer_before_clear)
+	if (!runtime->_preserve_depth_buffer)
 		return false;
 	if (!cleared && !runtime->extended_depth_buffer_detection)
 		return false;
@@ -56,8 +56,10 @@ bool D3D10Device::save_depth_texture(ID3D10DepthStencilView *pDepthStencilView, 
 	if (fabs(texture_aspect_ratio - aspect_ratio) > 0.1f || width_factor > 2.0f || height_factor > 2.0f || width_factor < 0.5f || height_factor < 0.5f)
 		return false; // No match, not a good fit
 
+	unsigned int clear_index = runtime->cleared_secondary_depth_buffer_index > 0 ? runtime->cleared_secondary_depth_buffer_index : runtime->cleared_primary_depth_buffer_index;
+
 	// In case the depth texture is retrieved, we make a copy of it and store it in an ordered map to use it later in the final rendering stage.
-	if ((runtime->cleared_depth_buffer_index == 0 && cleared) || (_clear_DSV_iter <= runtime->cleared_depth_buffer_index))
+	if ((runtime->cleared_primary_depth_buffer_index == 0 && cleared) || (_clear_DSV_iter <= clear_index))
 	{
 		// Select an appropriate destination texture
 		com_ptr<ID3D10Texture2D> depth_texture_save = runtime->select_depth_texture_save(desc);

@@ -68,16 +68,16 @@ reshade::d3d11::runtime_d3d11::runtime_d3d11(ID3D11Device *device, IDXGISwapChai
 	subscribe_to_ui("DX11", [this]() { draw_debug_menu(); });
 #endif
 	subscribe_to_load_config([this](const ini_file &config) {
-		config.get("DX11_BUFFER_DETECTION", "DepthBufferRetrievalMode", depth_buffer_before_clear);
+		config.get("DX11_BUFFER_DETECTION", "DepthBufferRetrievalMode", _preserve_depth_buffer);
 		config.get("DX11_BUFFER_DETECTION", "DepthBufferTextureFormat", depth_buffer_texture_format);
 		config.get("DX11_BUFFER_DETECTION", "ExtendedDepthBufferDetection", extended_depth_buffer_detection);
-		config.get("DX11_BUFFER_DETECTION", "DepthBufferClearingNumber", cleared_depth_buffer_index);
+		config.get("DX11_BUFFER_DETECTION", "DepthBufferClearingNumber", cleared_primary_depth_buffer_index);
 	});
 	subscribe_to_save_config([this](ini_file &config) {
-		config.set("DX11_BUFFER_DETECTION", "DepthBufferRetrievalMode", depth_buffer_before_clear);
+		config.set("DX11_BUFFER_DETECTION", "DepthBufferRetrievalMode", _preserve_depth_buffer);
 		config.set("DX11_BUFFER_DETECTION", "DepthBufferTextureFormat", depth_buffer_texture_format);
 		config.set("DX11_BUFFER_DETECTION", "ExtendedDepthBufferDetection", extended_depth_buffer_detection);
-		config.set("DX11_BUFFER_DETECTION", "DepthBufferClearingNumber", cleared_depth_buffer_index);
+		config.set("DX11_BUFFER_DETECTION", "DepthBufferClearingNumber", cleared_primary_depth_buffer_index);
 	});
 }
 reshade::d3d11::runtime_d3d11::~runtime_d3d11()
@@ -1367,7 +1367,7 @@ void reshade::d3d11::runtime_d3d11::draw_debug_menu()
 		modified |= ImGui::Combo("Depth Texture Format", &depth_buffer_texture_format, "All\0D16\0D32F\0D24S8\0D32FS8\0");
 		
 		ImGui::Spacing();
-		modified |= ImGui::Checkbox("Copy depth before clearing", &depth_buffer_before_clear);
+		modified |= ImGui::Checkbox("Copy depth before clearing", &_preserve_depth_buffer);
 
 		if (modified)
 		{
@@ -1377,11 +1377,11 @@ void reshade::d3d11::runtime_d3d11::draw_debug_menu()
 			return;
 		}
 		
-		if (depth_buffer_before_clear)
+		if (_preserve_depth_buffer)
 		{
 			if (ImGui::Checkbox("Extended depth buffer detection", &extended_depth_buffer_detection))
 			{
-				cleared_depth_buffer_index = 0;
+				cleared_primary_depth_buffer_index = 0;
 				modified = true;
 			}
 
@@ -1395,11 +1395,11 @@ void reshade::d3d11::runtime_d3d11::draw_debug_menu()
 			for (const auto &it : _current_tracker->cleared_depth_textures())
 			{
 				char label[512] = "";
-				sprintf_s(label, "%s%2u", (current_index == cleared_depth_buffer_index ? "> " : "  "), current_index);
+				sprintf_s(label, "%s%2u", (current_index == cleared_primary_depth_buffer_index ? "> " : "  "), current_index);
 
-				if (bool value = cleared_depth_buffer_index == current_index; ImGui::Checkbox(label, &value))
+				if (bool value = cleared_primary_depth_buffer_index == current_index; ImGui::Checkbox(label, &value))
 				{
-					cleared_depth_buffer_index = value ? current_index : 0;
+					cleared_primary_depth_buffer_index = value ? current_index : 0;
 					modified = true;
 				}
 
@@ -1495,10 +1495,10 @@ void reshade::d3d11::runtime_d3d11::draw_debug_menu()
 #if RESHADE_DX11_CAPTURE_DEPTH_BUFFERS
 void reshade::d3d11::runtime_d3d11::detect_depth_source(draw_call_tracker &tracker)
 {
-	if (depth_buffer_before_clear)
+	if (_preserve_depth_buffer)
 		_best_depthstencil_overwrite = nullptr;
 
-	if (_is_multisampling_enabled || _best_depthstencil_overwrite != nullptr || (_framecount % 30 && !depth_buffer_before_clear))
+	if (_is_multisampling_enabled || _best_depthstencil_overwrite != nullptr || (_framecount % 30 && !_preserve_depth_buffer))
 		return;
 
 	if (_has_high_network_activity)
@@ -1507,14 +1507,14 @@ void reshade::d3d11::runtime_d3d11::detect_depth_source(draw_call_tracker &track
 		return;
 	}
 
-	if (depth_buffer_before_clear)
+	if (_preserve_depth_buffer)
 	{
 		// At the final rendering stage, it is fine to rely on the depth stencil to select the best depth texture
 		// But when we retrieve the depth textures before the final rendering stage, there is chance that one or many different depth textures are associated to the same depth stencil (for instance, in Bioshock 2)
 		// In this case, we cannot use the depth stencil to determine which depth texture is the good one, so we can use the default depth stencil
 		// For the moment, the best we can do is retrieve all the depth textures that has been cleared in the rendering pipeline, then select one of them (by default, the last one)
 		// In the future, maybe we could find a way to retrieve depth texture statistics (number of draw calls and number of vertices), so ReShade could automatically select the best one
-		ID3D11Texture2D *const best_match_texture = tracker.find_best_cleared_depth_buffer_texture(cleared_depth_buffer_index);
+		ID3D11Texture2D *const best_match_texture = tracker.find_best_cleared_depth_buffer_texture(cleared_primary_depth_buffer_index);
 		_best_depthstencil_overwrite = nullptr;
 		if (best_match_texture != nullptr)
 			create_depthstencil_replacement(_default_depthstencil.get(), best_match_texture);
@@ -1528,7 +1528,7 @@ void reshade::d3d11::runtime_d3d11::detect_depth_source(draw_call_tracker &track
 
 bool reshade::d3d11::runtime_d3d11::create_depthstencil_replacement(ID3D11DepthStencilView *depthstencil, ID3D11Texture2D *texture)
 {
-	if (!depth_buffer_before_clear && depthstencil == _depthstencil)
+	if (!_preserve_depth_buffer && depthstencil == _depthstencil)
 		return false;
 
 	_depthstencil_texture_desc_changed = false;

@@ -46,7 +46,7 @@ bool D3D11DeviceContext::save_depth_texture(ID3D11DepthStencilView *pDepthStenci
 
 	const auto runtime = _device->_runtimes.front();
 
-	if (!runtime->depth_buffer_before_clear)
+	if (!runtime->_preserve_depth_buffer)
 		return false;
 	if (!cleared && !runtime->extended_depth_buffer_detection)
 		return false;
@@ -74,7 +74,7 @@ bool D3D11DeviceContext::save_depth_texture(ID3D11DepthStencilView *pDepthStenci
 		return false; // No match, not a good fit
 
 	// In case the depth texture is retrieved, we make a copy of it and store it in an ordered map to use it later in the final rendering stage.
-	if ((runtime->cleared_depth_buffer_index == 0 && cleared) || (_device->_clear_DSV_iter <= runtime->cleared_depth_buffer_index))
+	if ((runtime->cleared_primary_depth_buffer_index == 0 && cleared) || (_device->_clear_DSV_iter <= runtime->cleared_primary_depth_buffer_index))
 	{
 		// Select an appropriate destination texture
 		com_ptr<ID3D11Texture2D> depth_texture_save = runtime->select_depth_texture_save(desc);
