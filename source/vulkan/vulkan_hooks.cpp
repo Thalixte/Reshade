@@ -870,7 +870,6 @@ void VKAPI_CALL vkCmdBeginRenderPass(VkCommandBuffer commandBuffer, const VkRend
 
 	trampoline(commandBuffer, pRenderPassBegin, contents);
 
-	// no device associated (this cannot happen normally)
 	if (const auto it = s_command_buffer_mapping.find(commandBuffer); it == s_command_buffer_mapping.end())
 		return;
 
@@ -944,7 +943,6 @@ void     VKAPI_CALL vkCmdClearDepthStencilImage(VkCommandBuffer commandBuffer, V
 		assert(trampoline != nullptr);
 	}
 
-	// no device associated (this cannot happen normally)
 	if (const auto it = s_command_buffer_mapping.find(commandBuffer); it != s_command_buffer_mapping.end())
 	{
 		VkDevice device = s_command_buffer_mapping.at(commandBuffer);
@@ -976,7 +974,6 @@ void     VKAPI_CALL vkCmdClearAttachments(VkCommandBuffer commandBuffer, uint32_
 		assert(trampoline != nullptr);
 	}
 
-	// no device associated (this cannot happen normally)
 	if (const auto it = s_command_buffer_mapping.find(commandBuffer); it != s_command_buffer_mapping.end())
 	{
 		VkDevice device = s_command_buffer_mapping.at(commandBuffer);
