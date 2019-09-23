@@ -48,7 +48,7 @@ static std::unordered_map<VkCommandBuffer, VkDevice> s_command_buffer_mapping;
 static std::unordered_map<VkDevice, std::shared_ptr<reshade::vulkan::runtime_vk>> s_device_runtimes;
 static std::unordered_map<VkSwapchainKHR, std::shared_ptr<reshade::vulkan::runtime_vk>> s_runtimes;
 static std::unordered_map<VkImage, image_data> s_depth_stencil_buffer_images;
-static std::unordered_map<VkImageView, image_view_data> s_depth_stencil_buffer_imageViews;
+static std::unordered_map<VkImageView, image_view_data> s_depth_stencil_buffer_image_views;
 static std::unordered_map<VkFramebuffer, attachment_data> s_depth_stencil_buffer_frameBuffers;
 
 inline void *get_dispatch_key(const void *dispatchable_handle)
@@ -84,7 +84,7 @@ static void merge_command_buffer_trackers(VkCommandBuffer command_buffer, reshad
 }
 
 #if RESHADE_VULKAN_CAPTURE_DEPTH_BUFFERS
-static bool save_depth_image(VkCommandBuffer commandBuffer, VkDevice device, reshade::vulkan::draw_call_tracker &draw_call_tracker, VkImageView pDepthStencilView, image_view_data imageViewData, bool cleared)
+static bool save_depth_image(VkCommandBuffer, VkDevice device, reshade::vulkan::draw_call_tracker &draw_call_tracker, VkImageView pDepthStencilView, image_view_data imageViewData, bool cleared)
 {
 	if (const auto it = s_device_runtimes.find(device); it == s_device_runtimes.end())
 		return false;
@@ -156,7 +156,7 @@ static bool save_depth_image(VkCommandBuffer commandBuffer, VkDevice device, res
 	runtime->clear_DSV_iter++;
 	return true;
 }
-static void track_active_renderpass(VkCommandBuffer commandBuffer, VkDevice device, const VkRenderPassBeginInfo *pRenderPassBegin, attachment_data attachmentData)
+static void track_active_renderpass(VkCommandBuffer commandBuffer, VkDevice device, attachment_data attachmentData)
 {
 	if (const auto it = s_device_runtimes.find(device); it == s_device_runtimes.end())
 		return;
@@ -488,14 +488,14 @@ VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physicalDevice, const VkDevi
 		for (uint32_t j = 0; j < queueInfo.queueCount; j++)
 		{
 			VkQueue queue = VK_NULL_HANDLE;
-			PFN_vkGetDeviceQueue trampoline;
+			PFN_vkGetDeviceQueue get_device_queue;
 			
 			{ const std::lock_guard<std::mutex> lock(s_mutex);
-				trampoline = s_device_dispatch.at(get_dispatch_key(device)).GetDeviceQueue;
-				assert(trampoline != nullptr);
+				get_device_queue = s_device_dispatch.at(get_dispatch_key(device)).GetDeviceQueue;
+				assert(get_device_queue != nullptr);
 			}
 
-			trampoline(device, queueInfo.queueFamilyIndex, j, &queue);
+			get_device_queue(device, queueInfo.queueFamilyIndex, j, &queue);
 			s_queue_mapping[queue] = device;
 		}
 	}
@@ -773,24 +773,26 @@ VkResult VKAPI_CALL vkCreateImageView(VkDevice device, const VkImageViewCreateIn
 	}
 
 #if RESHADE_VULKAN_CAPTURE_DEPTH_BUFFERS
-	// create an image view where depth buffer is displayable in the shaders
-	VkImageViewCreateInfo createInfo = *pCreateInfo;
-	createInfo.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-
-	VkImageView pViewReplacement = VK_NULL_HANDLE;
-	result = trampoline(device, &createInfo, nullptr, &pViewReplacement);
-	if (result != VK_SUCCESS)
-	{
-		LOG(WARN) << "> vkCreateImageView failed with error code " << result << '!';
-		return result;
-	}
-
 	// Guard access to the map
 	const std::lock_guard<std::mutex> lock(s_mutex);
 
-	const auto it = s_depth_stencil_buffer_images.find(createInfo.image);
+	const auto it = s_depth_stencil_buffer_images.find(pCreateInfo->image);
 	if (it != s_depth_stencil_buffer_images.end())
-		s_depth_stencil_buffer_imageViews[*pView] = { it->first, createInfo, it->second, pViewReplacement };
+	{
+		// create an image view where depth buffer is displayable in the shaders
+		VkImageViewCreateInfo create_info = *pCreateInfo;
+		create_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+
+		VkImageView view_replacement = VK_NULL_HANDLE;
+		result = trampoline(device, &create_info, nullptr, &view_replacement);
+		if (result != VK_SUCCESS)
+		{
+			LOG(WARN) << "> vkCreateImageView failed with error code " << result << '!';
+			return result;
+		}
+
+		s_depth_stencil_buffer_image_views[*pView] = { it->first, create_info, it->second, view_replacement };
+	}
 #endif
 
 	return result;
@@ -820,8 +822,8 @@ VkResult VKAPI_CALL vkCreateFramebuffer(VkDevice device, const VkFramebufferCrea
 	{
 		VkImageView imageView = pAttachments[i];
 
-		const auto it = s_depth_stencil_buffer_imageViews.find(imageView);
-		if (it != s_depth_stencil_buffer_imageViews.end())
+		const auto it = s_depth_stencil_buffer_image_views.find(imageView);
+		if (it != s_depth_stencil_buffer_image_views.end())
 			s_depth_stencil_buffer_frameBuffers[*pFramebuffer] = { it->first, it->second };
 	}
 
@@ -870,6 +872,7 @@ void VKAPI_CALL vkCmdBeginRenderPass(VkCommandBuffer commandBuffer, const VkRend
 
 	trampoline(commandBuffer, pRenderPassBegin, contents);
 
+	// no device associated (this cannot happen normally)
 	if (const auto it = s_command_buffer_mapping.find(commandBuffer); it == s_command_buffer_mapping.end())
 		return;
 
@@ -881,7 +884,7 @@ void VKAPI_CALL vkCmdBeginRenderPass(VkCommandBuffer commandBuffer, const VkRend
 	s_framebuffer_per_command_buffer[commandBuffer] = pRenderPassBegin->framebuffer;
 	const auto it = s_depth_stencil_buffer_frameBuffers.find(pRenderPassBegin->framebuffer);
 	if (it != s_depth_stencil_buffer_frameBuffers.end())
-		track_active_renderpass(commandBuffer, device, pRenderPassBegin, it->second);
+		track_active_renderpass(commandBuffer, device, it->second);
 
 	bool depthstencilCleared = false;
 
@@ -943,11 +946,12 @@ void     VKAPI_CALL vkCmdClearDepthStencilImage(VkCommandBuffer commandBuffer, V
 		assert(trampoline != nullptr);
 	}
 
+	// no device associated (this cannot happen normally)
 	if (const auto it = s_command_buffer_mapping.find(commandBuffer); it != s_command_buffer_mapping.end())
 	{
 		VkDevice device = s_command_buffer_mapping.at(commandBuffer);
 
-		for (auto &[depthstencil, image_view_data] : s_depth_stencil_buffer_imageViews)
+		for (auto &[depthstencil, image_view_data] : s_depth_stencil_buffer_image_views)
 		{
 			if (image == image_view_data.image)
 			{
@@ -974,6 +978,7 @@ void     VKAPI_CALL vkCmdClearAttachments(VkCommandBuffer commandBuffer, uint32_
 		assert(trampoline != nullptr);
 	}
 
+	// no device associated (this cannot happen normally)
 	if (const auto it = s_command_buffer_mapping.find(commandBuffer); it != s_command_buffer_mapping.end())
 	{
 		VkDevice device = s_command_buffer_mapping.at(commandBuffer);
@@ -1023,7 +1028,7 @@ void     VKAPI_CALL vkDestroyImageView(VkDevice device, VkImageView imageView, c
 		assert(trampoline != nullptr);
 
 		// Remove surface since this surface is being destroyed
-		s_depth_stencil_buffer_imageViews.erase(imageView);
+		s_depth_stencil_buffer_image_views.erase(imageView);
 	}		
 		
 	trampoline(device, imageView, pAllocator);
