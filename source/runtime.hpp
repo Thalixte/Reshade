@@ -336,7 +336,7 @@ namespace reshade
 
 #if RESHADE_WIREFRAME
 		// === Wireframe Swiching ===
-		unsigned int _wireframe_key_data[4];
+		unsigned int _wireframe_key_data[4] = { 0, 0, 0, 0 };
 #endif
 
 		// === Preset Switching ===
