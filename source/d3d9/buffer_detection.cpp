@@ -103,12 +103,12 @@ void reshade::d3d9::buffer_detection::on_set_depthstencil(IDirect3DSurface9 *&de
 	if (depthstencil != _depthstencil_original)
 		return;
 
-	if (// Replace surface before targeted clear, so that all draw calls until this clear are bounded to the surface used by Reshade
-		_counters_per_used_depth_surface[_depthstencil_original].clears.size() < _internal_clear_index)
-	{
+	// if (// Replace surface before targeted clear, so that all draw calls until this clear are bounded to the surface used by Reshade
+		// _counters_per_used_depth_surface[_depthstencil_original].clears.size() < _internal_clear_index)
+	// {
 		// Replace application depth-stencil surface with our custom one
 		depthstencil = _depthstencil_replacement.get();
-	}
+	// }
 }
 void reshade::d3d9::buffer_detection::on_get_depthstencil(IDirect3DSurface9 *&depthstencil)
 {
@@ -217,7 +217,7 @@ void reshade::d3d9::buffer_detection::on_clear_depthstencil(UINT clear_flags)
 		_best_copy_stats = counters.current_stats;
 
 		// Bind the original surface again so the clear is not performed on the replacement
-		// _device->SetDepthStencilSurface(_depthstencil_original.get());
+		_device->SetDepthStencilSurface(_depthstencil_original.get());
 	}
 
 	_device->SetDepthStencilSurface(_depthstencil_replacement.get());
@@ -321,9 +321,6 @@ com_ptr<IDirect3DSurface9> reshade::d3d9::buffer_detection::find_best_depth_surf
 	depthstencil_info best_snapshot;
 	com_ptr<IDirect3DSurface9> best_match = std::move(override);
 	com_ptr<IDirect3DSurface9> best_preserved_match = _depthstencil_replacement;
-
-	_device->SetDepthStencilSurface(_depthstencil_replacement.get());
-	on_clear_depthstencil(D3DCLEAR_ZBUFFER);
 
 	if (best_match != nullptr)
 	{

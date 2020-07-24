@@ -1033,8 +1033,6 @@ VkResult VKAPI_CALL vkCreateGraphicsPipelines(VkDevice device, VkPipelineCache p
 
 	VkResult result = trampoline(device, pipelineCache, createInfoCount, pCreateInfos, pAllocator, pPipelines);
 	VkGraphicsPipelineCreateInfo createInfos = *pCreateInfos;
-	VkPipelineColorBlendStateCreateInfo colorBlendState;
-	VkPipelineColorBlendAttachmentState colorBlendAttachmentInfo;
 	VkPipelineRasterizationStateCreateInfo rasterisationInfo;
 
 	for (uint32_t i = 0; i < createInfoCount; ++i)
