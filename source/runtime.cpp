@@ -1770,6 +1770,14 @@ void reshade::runtime::reset_uniform_value(uniform &variable)
 	}
 }
 
+reshade::texture &reshade::runtime::look_up_texture_by_name(const std::string &unique_name)
+{
+	const auto it = std::find_if(_textures.begin(), _textures.end(),
+		[&unique_name](const auto &item) { return item.unique_name == unique_name && item.impl != nullptr; });
+	assert(it != _textures.end());
+	return *it;
+}
+
 #if RESHADE_WIREFRAME
 void reshade::runtime::init_wireframe_effect_file(std::filesystem::path configuration_path, std::filesystem::path effect_path)
 {
