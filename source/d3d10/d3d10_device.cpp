@@ -394,7 +394,7 @@ HRESULT STDMETHODCALLTYPE D3D10Device::CreateTexture2D(const D3D10_TEXTURE2D_DES
 	const HRESULT hr = _orig->CreateTexture2D(&new_desc, pInitialData, ppTexture2D);
 	if (FAILED(hr))
 	{
-		LOG(WARN) << "ID3D10Device::CreateTexture2D failed with error code " << hr << '.';
+		LOG(WARN) << "ID3D10Device::CreateTexture2D" << " failed with error code " << hr << '.';
 #if RESHADE_VERBOSE_LOG
 		LOG(DEBUG) << "> Dumping description:";
 		LOG(DEBUG) << "  +-----------------------------------------+-----------------------------------------+";
@@ -459,7 +459,7 @@ HRESULT STDMETHODCALLTYPE D3D10Device::CreateShaderResourceView(ID3D10Resource *
 	const HRESULT hr = _orig->CreateShaderResourceView(pResource, pDesc, ppSRView);
 	if (FAILED(hr))
 	{
-		LOG(WARN) << "ID3D10Device::CreateShaderResourceView failed with error code " << hr << '.';
+		LOG(WARN) << "ID3D10Device::CreateShaderResourceView" << " failed with error code " << hr << '.';
 #if RESHADE_VERBOSE_LOG
 		LOG(DEBUG) << "> Dumping description:";
 		LOG(DEBUG) << "  +-----------------------------------------+-----------------------------------------+";
@@ -515,7 +515,7 @@ HRESULT STDMETHODCALLTYPE D3D10Device::CreateDepthStencilView(ID3D10Resource *pR
 	const HRESULT hr = _orig->CreateDepthStencilView(pResource, pDesc, ppDepthStencilView);
 	if (FAILED(hr))
 	{
-		LOG(WARN) << "ID3D10Device::CreateDepthStencilView failed with error code " << hr << '.';
+		LOG(WARN) << "ID3D10Device::CreateDepthStencilView" << " failed with error code " << hr << '.';
 #if RESHADE_VERBOSE_LOG
 		LOG(DEBUG) << "> Dumping description:";
 		LOG(DEBUG) << "  +-----------------------------------------+-----------------------------------------+";
@@ -657,7 +657,7 @@ HRESULT STDMETHODCALLTYPE D3D10Device::CreateShaderResourceView1(ID3D10Resource 
 	const HRESULT hr = _orig->CreateShaderResourceView1(pResource, pDesc, ppSRView);
 	if (FAILED(hr))
 	{
-		LOG(WARN) << "ID3D10Device1::CreateShaderResourceView1 failed with error code " << hr << '.';
+		LOG(WARN) << "ID3D10Device1::CreateShaderResourceView1" << " failed with error code " << hr << '.';
 #if RESHADE_VERBOSE_LOG
 		LOG(DEBUG) << "> Dumping description:";
 		LOG(DEBUG) << "  +-----------------------------------------+-----------------------------------------+";
