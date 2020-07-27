@@ -34,10 +34,10 @@ struct command_buffer_data
 	reshade::vulkan::buffer_detection buffer_detection;
 };
 
-static lockfree_table<void*, device_data, 16> s_device_dispatch;
-static lockfree_table<void*, VkLayerInstanceDispatchTable, 16> s_instance_dispatch;
+static lockfree_table<void *, device_data, 16> s_device_dispatch;
+static lockfree_table<void *, VkLayerInstanceDispatchTable, 16> s_instance_dispatch;
 static lockfree_table<VkSurfaceKHR, HWND, 16> s_surface_windows;
-static lockfree_table<VkSwapchainKHR, reshade::vulkan::runtime_vk*, 16> s_vulkan_runtimes;
+static lockfree_table<VkSwapchainKHR, reshade::vulkan::runtime_vk *, 16> s_vulkan_runtimes;
 static lockfree_table<VkImage, VkImageCreateInfo, 4096> s_image_data;
 static lockfree_table<VkImageView, VkImage, 4096> s_image_view_mapping;
 static lockfree_table<VkFramebuffer, std::vector<VkImage>, 4096> s_framebuffer_data;
@@ -51,17 +51,17 @@ static bool _wireframe_mode;
 #endif
 
 template <typename T>
-static T* find_layer_info(const void* structure_chain, VkStructureType type, VkLayerFunction function)
+static T *find_layer_info(const void *structure_chain, VkStructureType type, VkLayerFunction function)
 {
-	T* next = reinterpret_cast<T*>(const_cast<void*>(structure_chain));
+	T *next = reinterpret_cast<T *>(const_cast<void *>(structure_chain));
 	while (next != nullptr && !(next->sType == type && next->function == function))
-		next = reinterpret_cast<T*>(const_cast<void*>(next->pNext));
+		next = reinterpret_cast<T *>(const_cast<void *>(next->pNext));
 	return next;
 }
 template <typename T>
-static const T* find_in_structure_chain(const void* structure_chain, VkStructureType type)
+static const T *find_in_structure_chain(const void *structure_chain, VkStructureType type)
 {
-	const T* next = reinterpret_cast<const T*>(structure_chain);
+	const T *next = reinterpret_cast<const T *>(structure_chain);
 	while (next != nullptr && next->sType != type)
 		next = reinterpret_cast<const T *>(next->pNext);
 	return next;
@@ -83,7 +83,7 @@ static inline void *dispatch_key_from_handle(const void *dispatch_handle)
 
 VkResult VKAPI_CALL vkCreateInstance(const VkInstanceCreateInfo *pCreateInfo, const VkAllocationCallbacks *pAllocator, VkInstance *pInstance)
 {
-	LOG(INFO) << "Redirecting vkCreateInstance" << '(' << "pCreateInfo = " << pCreateInfo << ", pAllocator = " << pAllocator << ", pInstance = " << pInstance << ')' << " ...";
+	LOG(INFO) << "Redirecting " << "vkCreateInstance" << '(' << "pCreateInfo = " << pCreateInfo << ", pAllocator = " << pAllocator << ", pInstance = " << pInstance << ')' << " ...";
 
 	assert(pCreateInfo != nullptr && pInstance != nullptr);
 
@@ -143,7 +143,7 @@ VkResult VKAPI_CALL vkCreateInstance(const VkInstanceCreateInfo *pCreateInfo, co
 	const VkResult result = trampoline(&create_info, pAllocator, pInstance);
 	if (result != VK_SUCCESS)
 	{
-		LOG(WARN) << "vkCreateInstance failed with error code " << result << '!';
+		LOG(WARN) << "vkCreateInstance" << " failed with error code " << result << '!';
 		return result;
 	}
 
@@ -175,7 +175,7 @@ VkResult VKAPI_CALL vkCreateInstance(const VkInstanceCreateInfo *pCreateInfo, co
 }
 void     VKAPI_CALL vkDestroyInstance(VkInstance instance, const VkAllocationCallbacks *pAllocator)
 {
-	LOG(INFO) << "Redirecting vkDestroyInstance" << '(' << "instance = " << instance << ", pAllocator = " << pAllocator << ')' << " ...";
+	LOG(INFO) << "Redirecting " << "vkDestroyInstance" << '(' << "instance = " << instance << ", pAllocator = " << pAllocator << ')' << " ...";
 
 	// Get function pointer before removing it next
 	GET_INSTANCE_DISPATCH_PTR(DestroyInstance, instance);
@@ -187,13 +187,13 @@ void     VKAPI_CALL vkDestroyInstance(VkInstance instance, const VkAllocationCal
 
 VkResult VKAPI_CALL vkCreateWin32SurfaceKHR(VkInstance instance, const VkWin32SurfaceCreateInfoKHR *pCreateInfo, const VkAllocationCallbacks *pAllocator, VkSurfaceKHR *pSurface)
 {
-	LOG(INFO) << "Redirecting vkCreateWin32SurfaceKHR" << '(' << "instance = " << instance << ", pCreateInfo = " << pCreateInfo << ", pAllocator = " << pAllocator << ", pSurface = " << pSurface << ')' << " ...";
+	LOG(INFO) << "Redirecting " << "vkCreateWin32SurfaceKHR" << '(' << "instance = " << instance << ", pCreateInfo = " << pCreateInfo << ", pAllocator = " << pAllocator << ", pSurface = " << pSurface << ')' << " ...";
 
 	GET_INSTANCE_DISPATCH_PTR(CreateWin32SurfaceKHR, instance);
 	const VkResult result = trampoline(instance, pCreateInfo, pAllocator, pSurface);
 	if (result != VK_SUCCESS)
 	{
-		LOG(WARN) << "vkCreateWin32SurfaceKHR failed with error code " << result << '!';
+		LOG(WARN) << "vkCreateWin32SurfaceKHR" << " failed with error code " << result << '!';
 		return result;
 	}
 
@@ -203,7 +203,7 @@ VkResult VKAPI_CALL vkCreateWin32SurfaceKHR(VkInstance instance, const VkWin32Su
 }
 void     VKAPI_CALL vkDestroySurfaceKHR(VkInstance instance, VkSurfaceKHR surface, const VkAllocationCallbacks *pAllocator)
 {
-	LOG(INFO) << "Redirecting vkDestroySurfaceKHR" << '(' << "instance = " << instance << ", surface = " << surface << ", pAllocator = " << pAllocator << ')' << " ...";
+	LOG(INFO) << "Redirecting " << "vkDestroySurfaceKHR" << '(' << "instance = " << instance << ", surface = " << surface << ", pAllocator = " << pAllocator << ')' << " ...";
 
 	s_surface_windows.erase(surface);
 
@@ -213,7 +213,7 @@ void     VKAPI_CALL vkDestroySurfaceKHR(VkInstance instance, VkSurfaceKHR surfac
 
 VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physicalDevice, const VkDeviceCreateInfo *pCreateInfo, const VkAllocationCallbacks *pAllocator, VkDevice *pDevice)
 {
-	LOG(INFO) << "Redirecting vkCreateDevice" << '(' << "physicalDevice = " << physicalDevice << ", pCreateInfo = " << pCreateInfo << ", pAllocator = " << pAllocator << ", pDevice = " << pDevice << ')' << " ...";
+	LOG(INFO) << "Redirecting " << "vkCreateDevice" << '(' << "physicalDevice = " << physicalDevice << ", pCreateInfo = " << pCreateInfo << ", pAllocator = " << pAllocator << ", pDevice = " << pDevice << ')' << " ...";
 
 	assert(pCreateInfo != nullptr && pDevice != nullptr);
 
@@ -300,7 +300,7 @@ VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physicalDevice, const VkDevi
 	if (std::find_if(enabled_extensions.begin(), enabled_extensions.end(),
 		[](const char *name) { return strcmp(name, VK_KHR_SWAPCHAIN_EXTENSION_NAME) == 0; }) == enabled_extensions.end())
 	{
-		LOG(WARN) << "Skipping device because it was not created with the \"" VK_KHR_SWAPCHAIN_EXTENSION_NAME "\" extension.";
+		LOG(WARN) << "Skipping device because it is not created with the \"" VK_KHR_SWAPCHAIN_EXTENSION_NAME "\" extension.";
 
 		graphics_queue_family_index  = std::numeric_limits<uint32_t>::max();
 	}
@@ -339,6 +339,8 @@ VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physicalDevice, const VkDevi
 		};
 
 		// Enable features that ReShade requires
+		enabled_features.shaderImageGatherExtended = true;
+		enabled_features.shaderStorageImageWriteWithoutFormat = true;
 		enabled_features.shaderImageGatherExtended = VK_TRUE;
 
 #if RESHADE_WIREFRAME
@@ -373,7 +375,7 @@ VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physicalDevice, const VkDevi
 	const VkResult result = trampoline(physicalDevice, &create_info, pAllocator, pDevice);
 	if (result != VK_SUCCESS)
 	{
-		LOG(WARN) << "vkCreateDevice failed with error code " << result << '!';
+		LOG(WARN) << "vkCreateDevice" << " failed with error code " << result << '!';
 		return result;
 	}
 
@@ -423,6 +425,7 @@ VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physicalDevice, const VkDevi
 	INIT_DEVICE_PROC(CreateShaderModule);
 	INIT_DEVICE_PROC(DestroyShaderModule);
 	INIT_DEVICE_PROC(CreateGraphicsPipelines);
+	INIT_DEVICE_PROC(CreateComputePipelines);
 	INIT_DEVICE_PROC(DestroyPipeline);
 	INIT_DEVICE_PROC(CreatePipelineLayout);
 	INIT_DEVICE_PROC(DestroyPipelineLayout);
@@ -456,6 +459,7 @@ VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physicalDevice, const VkDevi
 	INIT_DEVICE_PROC(CmdBindVertexBuffers);
 	INIT_DEVICE_PROC(CmdDraw);
 	INIT_DEVICE_PROC(CmdDrawIndexed);
+	INIT_DEVICE_PROC(CmdDispatch);
 	INIT_DEVICE_PROC(CmdCopyBuffer);
 	INIT_DEVICE_PROC(CmdCopyImage);
 	INIT_DEVICE_PROC(CmdBlitImage);
@@ -502,7 +506,7 @@ VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physicalDevice, const VkDevi
 }
 void     VKAPI_CALL vkDestroyDevice(VkDevice device, const VkAllocationCallbacks *pAllocator)
 {
-	LOG(INFO) << "Redirecting vkDestroyDevice" << '(' << "device = " << device << ", pAllocator = " << pAllocator << ')' << " ...";
+	LOG(INFO) << "Redirecting " << "vkDestroyDevice" << '(' << "device = " << device << ", pAllocator = " << pAllocator << ')' << " ...";
 
 	s_command_buffer_data.clear(); // Reset all command buffer data
 
@@ -520,7 +524,7 @@ void     VKAPI_CALL vkDestroyDevice(VkDevice device, const VkAllocationCallbacks
 
 VkResult VKAPI_CALL vkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreateInfoKHR *pCreateInfo, const VkAllocationCallbacks *pAllocator, VkSwapchainKHR *pSwapchain)
 {
-	LOG(INFO) << "Redirecting vkCreateSwapchainKHR" << '(' << "device = " << device << ", pCreateInfo = " << pCreateInfo << ", pAllocator = " << pAllocator << ", pSwapchain = " << pSwapchain << ')' << " ...";
+	LOG(INFO) << "Redirecting " << "vkCreateSwapchainKHR" << '(' << "device = " << device << ", pCreateInfo = " << pCreateInfo << ", pAllocator = " << pAllocator << ", pSwapchain = " << pSwapchain << ')' << " ...";
 
 	assert(pCreateInfo != nullptr && pSwapchain != nullptr);
 
@@ -607,7 +611,7 @@ VkResult VKAPI_CALL vkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreat
 	const VkResult result = device_data.dispatch_table.CreateSwapchainKHR(device, &create_info, pAllocator, pSwapchain);
 	if (result != VK_SUCCESS)
 	{
-		LOG(WARN) << "vkCreateSwapchainKHR failed with error code " << result << '!';
+		LOG(WARN) << "vkCreateSwapchainKHR" << " failed with error code " << result << '!';
 		return result;
 	}
 
@@ -650,7 +654,7 @@ VkResult VKAPI_CALL vkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreat
 }
 void     VKAPI_CALL vkDestroySwapchainKHR(VkDevice device, VkSwapchainKHR swapchain, const VkAllocationCallbacks *pAllocator)
 {
-	LOG(INFO) << "Redirecting vkDestroySwapchainKHR" << '(' << device << ", " << swapchain << ", " << pAllocator << ')' << " ...";
+	LOG(INFO) << "Redirecting " << "vkDestroySwapchainKHR" << '(' << device << ", " << swapchain << ", " << pAllocator << ')' << " ...";
 
 	// Remove runtime from global list
 	if (reshade::vulkan::runtime_vk *runtime;
@@ -743,7 +747,7 @@ VkResult VKAPI_CALL vkCreateImage(VkDevice device, const VkImageCreateInfo *pCre
 	const VkResult result = trampoline(device, &create_info, pAllocator, pImage);
 	if (result != VK_SUCCESS)
 	{
-		LOG(WARN) << "vkCreateImage failed with error code " << result << '!';
+		LOG(WARN) << "vkCreateImage" << " failed with error code " << result << '!';
 		return result;
 	}
 
@@ -769,7 +773,7 @@ VkResult VKAPI_CALL vkCreateImageView(VkDevice device, const VkImageViewCreateIn
 	const VkResult result = trampoline(device, pCreateInfo, pAllocator, pView);
 	if (result != VK_SUCCESS)
 	{
-		LOG(WARN) << "vkCreateImageView failed with error code " << result << '!';
+		LOG(WARN) << "vkCreateImageView" << " failed with error code " << result << '!';
 		return result;
 	}
 
@@ -795,7 +799,7 @@ VkResult VKAPI_CALL vkCreateRenderPass(VkDevice device, const VkRenderPassCreate
 	const VkResult result = trampoline(device, pCreateInfo, pAllocator, pRenderPass);
 	if (result != VK_SUCCESS)
 	{
-		LOG(WARN) << "vkCreateRenderPass failed with error code " << result << '!';
+		LOG(WARN) << "vkCreateRenderPass" << " failed with error code " << result << '!';
 		return result;
 	}
 
@@ -825,7 +829,7 @@ VkResult VKAPI_CALL vkCreateRenderPass2(VkDevice device, const VkRenderPassCreat
 	const VkResult result = trampoline(device, pCreateInfo, pAllocator, pRenderPass);
 	if (result != VK_SUCCESS)
 	{
-		LOG(WARN) << "vkCreateRenderPass2 failed with error code " << result << '!';
+		LOG(WARN) << "vkCreateRenderPass2" << " failed with error code " << result << '!';
 		return result;
 	}
 
@@ -861,7 +865,7 @@ VkResult VKAPI_CALL vkCreateFramebuffer(VkDevice device, const VkFramebufferCrea
 	const VkResult result = trampoline(device, pCreateInfo, pAllocator, pFramebuffer);
 	if (result != VK_SUCCESS)
 	{
-		LOG(WARN) << "vkCreateFramebuffer failed with error code " << result << '!';
+		LOG(WARN) << "vkCreateFramebuffer" << " failed with error code " << result << '!';
 		return result;
 	}
 
@@ -891,7 +895,7 @@ VkResult VKAPI_CALL vkAllocateCommandBuffers(VkDevice device, const VkCommandBuf
 	const VkResult result = trampoline(device, pAllocateInfo, pCommandBuffers);
 	if (result != VK_SUCCESS)
 	{
-		LOG(WARN) << "vkAllocateCommandBuffers failed with error code " << result << '!';
+		LOG(WARN) << "vkAllocateCommandBuffers" << " failed with error code " << result << '!';
 		return result;
 	}
 
@@ -1148,7 +1152,7 @@ VK_LAYER_EXPORT PFN_vkVoidFunction VKAPI_CALL vkGetDeviceProcAddr(VkDevice devic
 #endif
 
 	// Need to self-intercept as well, since some layers rely on this (e.g. Steam overlay)
-	// See also https://github.com/KhronosGroup/Vulkan-Loader/blob/master/loader/LoaderAndLayerInterface.md#layer-conventions-and-rules
+	// See https://github.com/KhronosGroup/Vulkan-Loader/blob/master/loader/LoaderAndLayerInterface.md#layer-conventions-and-rules
 	if (0 == strcmp(pName, "vkGetDeviceProcAddr"))
 		return reinterpret_cast<PFN_vkVoidFunction>(vkGetDeviceProcAddr);
 
