@@ -76,7 +76,7 @@ void reshade::d3d9::buffer_detection::on_draw(D3DPRIMITIVETYPE type, UINT vertic
 	if (depthstencil == nullptr)
 		return; // This is a draw call with no depth-stencil bound
 
-	depthstencil = (depthstencil == _depthstencil_replacement) ? _depthstencil_original : depthstencil;
+	depthstencil = (depthstencil == _depthstencil_replacement) ? _depthstencil_original : depthstencil;	
 
 	// Update draw statistics for tracked depth-stencil surfaces
 	auto &counters = _counters_per_used_depth_surface[depthstencil];
@@ -84,6 +84,7 @@ void reshade::d3d9::buffer_detection::on_draw(D3DPRIMITIVETYPE type, UINT vertic
 	counters.total_stats.drawcalls += 1;
 	counters.current_stats.vertices += vertices;
 	counters.current_stats.drawcalls += 1;
+	_device->GetViewport(&counters.current_stats.viewport);
 #endif
 
 #if RESHADE_WIREFRAME
@@ -158,7 +159,7 @@ void reshade::d3d9::buffer_detection::on_clear_depthstencil(UINT clear_flags)
 	counters.clears.push_back(counters.current_stats);
 
 	// Reset draw call stats for clears
-	counters.current_stats = { 0, 0, nullptr };
+	counters.current_stats = { 0, 0, {0, 0}, nullptr };
 
 	com_ptr< IDirect3DSurface9> preserved_depthstencil_surface;
 
@@ -389,6 +390,25 @@ com_ptr<IDirect3DSurface9> reshade::d3d9::buffer_detection::find_best_depth_surf
 			for (UINT clear_index = 0; clear_index < best_snapshot.clears.size(); clear_index++)
 			{
 				const auto &snapshot = best_snapshot.clears[clear_index];
+
+				if (snapshot.preserved_depthstencil_surface == nullptr)
+					continue;
+
+				D3DSURFACE_DESC desc;
+				snapshot.preserved_depthstencil_surface->GetDesc(&desc);
+				assert((desc.Usage & D3DUSAGE_DEPTHSTENCIL) != 0);
+
+				if (snapshot.viewport.Width != 0 && snapshot.viewport.Height != 0)
+				{
+					const float w = static_cast<float>(snapshot.viewport.Width);
+					const float w_ratio = w / desc.Width;
+					const float h = static_cast<float>(snapshot.viewport.Height);
+					const float h_ratio = h / desc.Height;
+					const float aspect_ratio = (w / h) - (static_cast<float>(desc.Width) / desc.Height);
+
+					if (std::fabs(aspect_ratio) > 0.1f || w_ratio > 1.85f || h_ratio > 1.85f || w_ratio < 0.5f || h_ratio < 0.5f)
+						continue; // Not a good fit
+				}
 
 				// Fix for source engine games: Add a weight in order not to select the first db instance if it is related to the background scene
 				int mult = (clear_index > 0) ? 10 : 1;

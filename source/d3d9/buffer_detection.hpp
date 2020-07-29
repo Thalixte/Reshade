@@ -19,6 +19,7 @@ namespace reshade::d3d9
 		{
 			UINT vertices = 0;
 			UINT drawcalls = 0;
+			D3DVIEWPORT9 viewport;
 			com_ptr<IDirect3DSurface9> preserved_depthstencil_surface;
 		};
 		struct depthstencil_info
