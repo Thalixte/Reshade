@@ -15,7 +15,6 @@ void reshade::d3d9::buffer_detection::reset(bool release_resources)
 {
 	_stats = { 0, 0 };
 #if RESHADE_DEPTH
-	_best_copy_stats = { 0, 0 };
 	_first_empty_stats = true;
 	_depth_stencil_cleared = false;
 	_counters_per_used_depth_surface.clear();
@@ -279,14 +278,6 @@ void reshade::d3d9::buffer_detection::on_clear_depthstencil(UINT clear_flags)
 	counters.current_stats.preserved_depthstencil_surface = preserved_depthstencil_surface;
 	_depthstencil_replacement = std::move(preserved_depthstencil_surface);
 
-	if (_internal_clear_index == counters.clears.size())
-	{
-		_best_copy_stats = counters.current_stats;
-
-		// Bind the original surface again so the clear is not performed on the replacement
-		_device->SetDepthStencilSurface(_depthstencil_original.get());
-	}
-
 	_device->SetDepthStencilSurface(_depthstencil_replacement.get());
 }
 
@@ -444,20 +435,21 @@ com_ptr<IDirect3DSurface9> reshade::d3d9::buffer_detection::find_best_depth_surf
 		// Always need to replace if preserving on clears
 		no_replacement = false;
 
-		if (depthstencil_clear_index.second != 0)
+		if (depthstencil_clear_index.second != 0 && depthstencil_clear_index.second < best_snapshot.clears.size())
 		{
-			_internal_clear_index = depthstencil_clear_index.second;
+			UINT clear_index = depthstencil_clear_index.second - 1;
+			const auto &snapshot = best_snapshot.clears[clear_index];
+			best_preserved_match = std::move(snapshot.preserved_depthstencil_surface);
 		}
 		else
 		{
-			_internal_clear_index = std::numeric_limits<UINT>::max();
 			UINT last_vertices = 0;
 
 			for (UINT clear_index = 0; clear_index < best_snapshot.clears.size(); clear_index++)
 			{
 				const auto &snapshot = best_snapshot.clears[clear_index];
 
-				if (width != 0 && height != 0 && snapshot.viewport.Width != 0 && snapshot.viewport.Height != 0)
+				if (width != 0 && height != 0)
 				{
 					const float w = static_cast<float>(width);
 					const float w_ratio = w / snapshot.viewport.Width;
@@ -474,7 +466,6 @@ com_ptr<IDirect3DSurface9> reshade::d3d9::buffer_detection::find_best_depth_surf
 				if (mult * snapshot.vertices >= last_vertices)
 				{
 					last_vertices = mult * snapshot.vertices;
-					_internal_clear_index = clear_index + 1;
 					best_preserved_match = std::move(snapshot.preserved_depthstencil_surface);
 				}
 			}

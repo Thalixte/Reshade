@@ -48,7 +48,6 @@ namespace reshade::d3d9
 		bool disable_intz = false;
 		bool preserve_depth_buffers = false;
 		std::pair<com_ptr<IDirect3DSurface9>, UINT> depthstencil_clear_index = { nullptr, 0 };
-		UINT _internal_clear_index = 0;
 
 		const auto &depth_buffer_counters() const { return _counters_per_used_depth_surface; }
 		IDirect3DSurface9 *current_depth_surface() const { return _depthstencil_original.get(); }
@@ -73,7 +72,6 @@ namespace reshade::d3d9
 		bool update_depthstencil_replacement(com_ptr<IDirect3DSurface9> depthstencil);
 
 		draw_stats _previous_stats;
-		draw_stats _best_copy_stats;
 		bool _first_empty_stats = true;
 		bool _depth_stencil_cleared = false;
 		com_ptr<IDirect3DSurface9> _depthstencil_original;
