@@ -457,20 +457,13 @@ com_ptr<IDirect3DSurface9> reshade::d3d9::buffer_detection::find_best_depth_surf
 			{
 				const auto &snapshot = best_snapshot.clears[clear_index];
 
-				if (snapshot.preserved_depthstencil_surface == nullptr)
-					continue;
-
-				D3DSURFACE_DESC desc;
-				snapshot.preserved_depthstencil_surface->GetDesc(&desc);
-				assert((desc.Usage & D3DUSAGE_DEPTHSTENCIL) != 0);
-
-				if (snapshot.viewport.Width != 0 && snapshot.viewport.Height != 0)
+				if (width != 0 && height != 0 && snapshot.viewport.Width != 0 && snapshot.viewport.Height != 0)
 				{
-					const float w = static_cast<float>(snapshot.viewport.Width);
-					const float w_ratio = w / desc.Width;
-					const float h = static_cast<float>(snapshot.viewport.Height);
-					const float h_ratio = h / desc.Height;
-					const float aspect_ratio = (w / h) - (static_cast<float>(desc.Width) / desc.Height);
+					const float w = static_cast<float>(width);
+					const float w_ratio = w / snapshot.viewport.Width;
+					const float h = static_cast<float>(height);
+					const float h_ratio = h / snapshot.viewport.Height;
+					const float aspect_ratio = (w / h) - (static_cast<float>(snapshot.viewport.Width) / snapshot.viewport.Height);
 
 					if (std::fabs(aspect_ratio) > 0.1f || w_ratio > 1.85f || h_ratio > 1.85f || w_ratio < 0.5f || h_ratio < 0.5f)
 						continue; // Not a good fit
