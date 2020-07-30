@@ -73,7 +73,6 @@ namespace reshade::d3d9
 
 		draw_stats _previous_stats;
 		bool _first_empty_stats = true;
-		bool _depth_stencil_cleared = false;
 		com_ptr<IDirect3DSurface9> _depthstencil_original;
 		com_ptr<IDirect3DSurface9> _depthstencil_replacement;
 		// Use "std::map" instead of "std::unordered_map" so that the iteration order is guaranteed

@@ -16,7 +16,6 @@ void reshade::d3d9::buffer_detection::reset(bool release_resources)
 	_stats = { 0, 0 };
 #if RESHADE_DEPTH
 	_first_empty_stats = true;
-	_depth_stencil_cleared = false;
 	_counters_per_used_depth_surface.clear();
 
 	if (release_resources)
@@ -191,8 +190,6 @@ void reshade::d3d9::buffer_detection::on_get_depthstencil(IDirect3DSurface9 *&de
 
 void reshade::d3d9::buffer_detection::on_clear_depthstencil(UINT clear_flags)
 {
-	_depth_stencil_cleared = true;
-
 	if ((clear_flags & D3DCLEAR_ZBUFFER) == 0 || !preserve_depth_buffers)
 		return;
 
