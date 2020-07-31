@@ -43,6 +43,7 @@ namespace reshade::d3d9
 		void on_set_depthstencil(IDirect3DSurface9 *&depthstencil);
 		void on_get_depthstencil(IDirect3DSurface9 *&depthstencil);
 		void on_clear_depthstencil(UINT clear_flags);
+		void on_set_viewport(D3DVIEWPORT9 viewport);
 
 		// Detection Settings
 		bool disable_intz = false;
@@ -70,6 +71,8 @@ namespace reshade::d3d9
 		bool check_texture_format(const D3DSURFACE_DESC &desc);
 
 		bool update_depthstencil_replacement(com_ptr<IDirect3DSurface9> depthstencil);
+
+		void switch_depthsurface(com_ptr<IDirect3DSurface9> depthstencil);
 
 		draw_stats _previous_stats;
 		bool _first_empty_stats = true;

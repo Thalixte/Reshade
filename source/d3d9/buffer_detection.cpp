@@ -38,77 +38,16 @@ void reshade::d3d9::buffer_detection::reset(bool release_resources)
 		if (depthstencil == nullptr || _depthstencil_replacement == nullptr || depthstencil != depthstencil_clear_index.first)
 			return;
 
-		// always bound the stats to the original depthstencil surface
-		auto &counters = _counters_per_used_depth_surface[depthstencil];
+		// switch to another depthsurface replacement
+		switch_depthsurface(depthstencil);
 
-		// Reset draw call stats for clears
-		counters.current_stats = { 0, 0, {0, 0}, nullptr };
-
-		com_ptr<IDirect3DSurface9> preserved_depthstencil_surface;
-
-		size_t clearSize = counters.clears.size();
-		if (_preserved_depthstencil_surfaces.size() > clearSize)
-		{
-			// retrieve current preserved depthstencil surface
-			preserved_depthstencil_surface = _preserved_depthstencil_surfaces[clearSize];
-	}
-		else
-		{
-			D3DSURFACE_DESC desc;
-			depthstencil->GetDesc(&desc);
-
-			// Check hardware support for INTZ (or alternative) format
-			com_ptr<IDirect3D9> d3d;
-			_device->GetDirect3D(&d3d);
-			D3DDEVICE_CREATION_PARAMETERS cp;
-			_device->GetCreationParameters(&cp);
-
-			desc.Format = D3DFMT_UNKNOWN;
-			const D3DFORMAT formats[] = { D3DFMT_INTZ, D3DFMT_DF24, D3DFMT_DF16 };
-			for (const auto format : formats)
-			{
-				if (SUCCEEDED(d3d->CheckDeviceFormat(cp.AdapterOrdinal, cp.DeviceType, D3DFMT_X8R8G8B8, D3DUSAGE_DEPTHSTENCIL, D3DRTYPE_TEXTURE, format)))
-				{
-					desc.Format = format;
-					break;
-				}
-			}
-
-			if (desc.Format == D3DFMT_UNKNOWN)
-			{
-				LOG(ERROR) << "Your graphics card is missing support for at least one of the 'INTZ', 'DF24' or 'DF16' texture formats. Cannot create depth replacement texture.";
-				return;
-			}
-
-			com_ptr<IDirect3DTexture9> texture;
-
-			if (HRESULT hr = _device->CreateTexture(desc.Width, desc.Height, 1, D3DUSAGE_DEPTHSTENCIL, desc.Format, D3DPOOL_DEFAULT, &texture, nullptr); FAILED(hr))
-			{
-				LOG(ERROR) << "Failed to create depth texture replacement! HRESULT is " << hr << '.';
-				return;
-			}
-
-			// The surface holds a reference to the texture, so it is safe to let that go out of scope
-			texture->GetSurfaceLevel(0, &preserved_depthstencil_surface);
-			_preserved_depthstencil_surfaces.push_back(preserved_depthstencil_surface.get());
-		}
-
-		counters.current_stats.preserved_depthstencil_surface = preserved_depthstencil_surface;
-		_depthstencil_replacement = std::move(preserved_depthstencil_surface);
-
-		// select the current replacement depthstencil
-		_device->SetDepthStencilSurface(_depthstencil_replacement.get());
-		_device->Clear(0, nullptr, D3DCLEAR_ZBUFFER, 0, 1.0f, 0);
-
-#if RESHADE_WIREFRAME
-		// ensure that all the surfaces are cleared. This is necessary for the wireframe mode
+		// ensure that all the depth surfaces are cleared at the end of the frame
 		for (com_ptr<IDirect3DSurface9> depth_surface : _preserved_depthstencil_surfaces)
 		{
 			// Clear the replacement at the end of the frame, since the clear performed by the application was only applied to the original one
 			_device->SetDepthStencilSurface(depth_surface.get());
 			_device->Clear(0, nullptr, D3DCLEAR_ZBUFFER, 0, 1.0f, 0);
 		}
-#endif
 	}
 #else
 	UNREFERENCED_PARAMETER(release_resources);
@@ -152,7 +91,6 @@ void reshade::d3d9::buffer_detection::on_draw(D3DPRIMITIVETYPE type, UINT vertic
 	counters.total_stats.drawcalls += 1;
 	counters.current_stats.vertices += vertices;
 	counters.current_stats.drawcalls += 1;
-	_device->GetViewport(&counters.current_stats.viewport);
 #endif
 
 #if RESHADE_WIREFRAME
@@ -215,67 +153,28 @@ void reshade::d3d9::buffer_detection::on_clear_depthstencil(UINT clear_flags)
 	if (counters.current_stats.vertices <= 4 || counters.current_stats.drawcalls == 0) // Also triggers when '_preserve_depth_buffers' is false, since no clear stats are recorded then
 		return; // Ignore clears when there was no meaningful workload since the last one
 
-	if (depthstencil != _depthstencil_original && depthstencil != _depthstencil_replacement)
-		return; // Can only avoid clear of the replacement surface
-
 	counters.clears.push_back(counters.current_stats);
 
-	// Reset draw call stats for clears
-	counters.current_stats = { 0, 0, {0, 0}, nullptr };
+	// switch to another depthsurface replacement
+	switch_depthsurface(depthstencil);
 
-	com_ptr< IDirect3DSurface9> preserved_depthstencil_surface;
+	// the new selected depthsurface will now be cleared to reset it
+}
 
-	size_t clearSize = counters.clears.size();
-	if (_preserved_depthstencil_surfaces.size() > clearSize)
-	{
-		// retrieve current preserved depthstencil surface
-		preserved_depthstencil_surface = _preserved_depthstencil_surfaces[clearSize];
-	}
-	else
-	{
-		D3DSURFACE_DESC desc;
-		depthstencil->GetDesc(&desc);
+void reshade::d3d9::buffer_detection::on_set_viewport(D3DVIEWPORT9 viewport)
+{
+	com_ptr<IDirect3DSurface9> depthstencil;
+	_device->GetDepthStencilSurface(&depthstencil);
 
-		// Check hardware support for INTZ (or alternative) format
-		com_ptr<IDirect3D9> d3d;
-		_device->GetDirect3D(&d3d);
-		D3DDEVICE_CREATION_PARAMETERS cp;
-		_device->GetCreationParameters(&cp);
+	depthstencil = (depthstencil == _depthstencil_replacement) ? _depthstencil_original : depthstencil;
 
-		desc.Format = D3DFMT_UNKNOWN;
-		const D3DFORMAT formats[] = { D3DFMT_INTZ, D3DFMT_DF24, D3DFMT_DF16 };
-		for (const auto format : formats)
-		{
-			if (SUCCEEDED(d3d->CheckDeviceFormat(cp.AdapterOrdinal, cp.DeviceType, D3DFMT_X8R8G8B8, D3DUSAGE_DEPTHSTENCIL, D3DRTYPE_TEXTURE, format)))
-			{
-				desc.Format = format;
-				break;
-			}
-		}
+	if (depthstencil == nullptr || _depthstencil_replacement == nullptr || depthstencil != depthstencil_clear_index.first)
+		return;
 
-		if (desc.Format == D3DFMT_UNKNOWN)
-		{
-			LOG(ERROR) << "Your graphics card is missing support for at least one of the 'INTZ', 'DF24' or 'DF16' texture formats. Cannot create depth replacement texture.";
-			return;
-		}
+	// always bound the stats to the original depthstencil surface
+	auto &counters = _counters_per_used_depth_surface[depthstencil];
 
-		com_ptr<IDirect3DTexture9> texture;
-
-		if (HRESULT hr = _device->CreateTexture(desc.Width, desc.Height, 1, D3DUSAGE_DEPTHSTENCIL, desc.Format, D3DPOOL_DEFAULT, &texture, nullptr); FAILED(hr))
-		{
-			LOG(ERROR) << "Failed to create depth texture replacement! HRESULT is " << hr << '.';
-			return;
-		}
-
-		// The surface holds a reference to the texture, so it is safe to let that go out of scope
-		texture->GetSurfaceLevel(0, &preserved_depthstencil_surface);
-		_preserved_depthstencil_surfaces.push_back(preserved_depthstencil_surface.get());
-	}
-
-	counters.current_stats.preserved_depthstencil_surface = preserved_depthstencil_surface;
-	_depthstencil_replacement = std::move(preserved_depthstencil_surface);
-
-	_device->SetDepthStencilSurface(_depthstencil_replacement.get());
+	counters.current_stats.viewport = viewport;
 }
 
 bool reshade::d3d9::buffer_detection::update_depthstencil_replacement(com_ptr<IDirect3DSurface9> depthstencil)
@@ -480,6 +379,70 @@ com_ptr<IDirect3DSurface9> reshade::d3d9::buffer_detection::find_best_depth_surf
 	update_depthstencil_replacement(std::move(best_match));
 
 	return _depthstencil_replacement; // Replacement takes effect starting with the next frame
+}
+
+void reshade::d3d9::buffer_detection::switch_depthsurface(com_ptr<IDirect3DSurface9> depthstencil)
+{
+	// always bound the stats to the original depthstencil surface
+	auto &counters = _counters_per_used_depth_surface[depthstencil];
+
+	// Reset draw call stats for clears
+	counters.current_stats = { 0, 0, {0, 0}, nullptr };
+
+	com_ptr<IDirect3DSurface9> preserved_depthstencil_surface;
+
+	size_t clearSize = counters.clears.size();
+	if (_preserved_depthstencil_surfaces.size() > clearSize)
+	{
+		// retrieve current preserved depthstencil surface
+		preserved_depthstencil_surface = _preserved_depthstencil_surfaces[clearSize];
+	}
+	else
+	{
+		D3DSURFACE_DESC desc;
+		depthstencil->GetDesc(&desc);
+
+		// Check hardware support for INTZ (or alternative) format
+		com_ptr<IDirect3D9> d3d;
+		_device->GetDirect3D(&d3d);
+		D3DDEVICE_CREATION_PARAMETERS cp;
+		_device->GetCreationParameters(&cp);
+
+		desc.Format = D3DFMT_UNKNOWN;
+		const D3DFORMAT formats[] = { D3DFMT_INTZ, D3DFMT_DF24, D3DFMT_DF16 };
+		for (const auto format : formats)
+		{
+			if (SUCCEEDED(d3d->CheckDeviceFormat(cp.AdapterOrdinal, cp.DeviceType, D3DFMT_X8R8G8B8, D3DUSAGE_DEPTHSTENCIL, D3DRTYPE_TEXTURE, format)))
+			{
+				desc.Format = format;
+				break;
+			}
+		}
+
+		if (desc.Format == D3DFMT_UNKNOWN)
+		{
+			LOG(ERROR) << "Your graphics card is missing support for at least one of the 'INTZ', 'DF24' or 'DF16' texture formats. Cannot create depth replacement texture.";
+			return;
+		}
+
+		com_ptr<IDirect3DTexture9> texture;
+
+		if (HRESULT hr = _device->CreateTexture(desc.Width, desc.Height, 1, D3DUSAGE_DEPTHSTENCIL, desc.Format, D3DPOOL_DEFAULT, &texture, nullptr); FAILED(hr))
+		{
+			LOG(ERROR) << "Failed to create depth texture replacement! HRESULT is " << hr << '.';
+			return;
+		}
+
+		// The surface holds a reference to the texture, so it is safe to let that go out of scope
+		texture->GetSurfaceLevel(0, &preserved_depthstencil_surface);
+		_preserved_depthstencil_surfaces.push_back(preserved_depthstencil_surface.get());
+	}
+
+	counters.current_stats.preserved_depthstencil_surface = preserved_depthstencil_surface;
+	_depthstencil_replacement = std::move(preserved_depthstencil_surface);
+
+	// select the current replacement depthstencil
+	_device->SetDepthStencilSurface(_depthstencil_replacement.get());
 }
 #endif
 
