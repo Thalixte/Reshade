@@ -72,7 +72,7 @@ namespace reshade::d3d9
 
 		bool update_depthstencil_replacement(com_ptr<IDirect3DSurface9> depthstencil);
 
-		void switch_depthsurface(com_ptr<IDirect3DSurface9> depthstencil);
+		void switch_depthsurface(com_ptr<IDirect3DSurface9> depthstencil, depthstencil_info &counters);
 
 		draw_stats _previous_stats;
 		bool _first_empty_stats = true;

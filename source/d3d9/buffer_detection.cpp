@@ -38,8 +38,11 @@ void reshade::d3d9::buffer_detection::reset(bool release_resources)
 		if (depthstencil == nullptr || _depthstencil_replacement == nullptr || depthstencil != depthstencil_clear_index.first)
 			return;
 
+		// always bound the stats to the original depthstencil surface
+		auto &counters = _counters_per_used_depth_surface[depthstencil];
+
 		// switch to another depthsurface replacement
-		switch_depthsurface(depthstencil);
+		switch_depthsurface(depthstencil, counters);
 
 		// ensure that all the depth surfaces are cleared at the end of the frame
 		for (com_ptr<IDirect3DSurface9> depth_surface : _preserved_depthstencil_surfaces)
@@ -156,7 +159,7 @@ void reshade::d3d9::buffer_detection::on_clear_depthstencil(UINT clear_flags)
 	counters.clears.push_back(counters.current_stats);
 
 	// switch to another depthsurface replacement
-	switch_depthsurface(depthstencil);
+	switch_depthsurface(depthstencil, counters);
 
 	// the new selected depthsurface will now be cleared to reset it
 }
@@ -381,11 +384,8 @@ com_ptr<IDirect3DSurface9> reshade::d3d9::buffer_detection::find_best_depth_surf
 	return _depthstencil_replacement; // Replacement takes effect starting with the next frame
 }
 
-void reshade::d3d9::buffer_detection::switch_depthsurface(com_ptr<IDirect3DSurface9> depthstencil)
+void reshade::d3d9::buffer_detection::switch_depthsurface(com_ptr<IDirect3DSurface9> depthstencil, depthstencil_info &counters)
 {
-	// always bound the stats to the original depthstencil surface
-	auto &counters = _counters_per_used_depth_surface[depthstencil];
-
 	// Reset draw call stats for clears
 	counters.current_stats = { 0, 0, {0, 0}, nullptr };
 
