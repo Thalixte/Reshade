@@ -113,6 +113,7 @@ void reshade::d3d9::buffer_detection::on_set_depthstencil(IDirect3DSurface9 *&de
 	if (depthstencil != _depthstencil_original)
 		return;
 
+	// ensure to replace by the depthstencil replacement surface
 	depthstencil = _depthstencil_replacement.get();
 }
 void reshade::d3d9::buffer_detection::on_get_depthstencil(IDirect3DSurface9 *&depthstencil)
@@ -121,8 +122,9 @@ void reshade::d3d9::buffer_detection::on_get_depthstencil(IDirect3DSurface9 *&de
 		return;
 
 	if (depthstencil != _depthstencil_replacement)
-		return;// The call to IDirect3DDevice9::GetDepthStencilSurface increased the reference count, so release that before replacing
+		return;
 
+	// The call to IDirect3DDevice9::GetDepthStencilSurface increased the reference count, so release that before replacing
 	depthstencil->Release();
 	// Return the original application depth-stencil surface in case the game engine needs it
 	depthstencil = _depthstencil_original.get();
@@ -158,10 +160,10 @@ void reshade::d3d9::buffer_detection::on_clear_depthstencil(UINT clear_flags)
 
 	counters.clears.push_back(counters.current_stats);
 
-	// switch to another depthsurface replacement
+	// switch to another depthsurface replacement surface
 	switch_depthsurface(depthstencil, counters);
 
-	// the new selected depthsurface will now be cleared to reset it
+	// the new selected depthsurface will now be cleared to reset it after calling this function
 }
 
 void reshade::d3d9::buffer_detection::on_set_viewport(D3DVIEWPORT9 viewport)
@@ -177,6 +179,7 @@ void reshade::d3d9::buffer_detection::on_set_viewport(D3DVIEWPORT9 viewport)
 	// always bound the stats to the original depthstencil surface
 	auto &counters = _counters_per_used_depth_surface[depthstencil];
 
+	// register the viewport associated with the current depthsurface
 	counters.current_stats.viewport = viewport;
 }
 
@@ -348,6 +351,8 @@ com_ptr<IDirect3DSurface9> reshade::d3d9::buffer_detection::find_best_depth_surf
 			{
 				const auto &snapshot = best_snapshot.clears[clear_index];
 
+				// check for viewport dimensions: if it does not match the deptsurface dimensions, this means
+				// that vertices have been drawn in a portion of the depthsurface, so do not take this into account
 				if (width != 0 && height != 0)
 				{
 					const float w = static_cast<float>(width);
@@ -441,7 +446,7 @@ void reshade::d3d9::buffer_detection::switch_depthsurface(com_ptr<IDirect3DSurfa
 	counters.current_stats.preserved_depthstencil_surface = preserved_depthstencil_surface;
 	_depthstencil_replacement = std::move(preserved_depthstencil_surface);
 
-	// select the current replacement depthstencil
+	// select the current replacement depthstencil surface
 	_device->SetDepthStencilSurface(_depthstencil_replacement.get());
 }
 #endif
