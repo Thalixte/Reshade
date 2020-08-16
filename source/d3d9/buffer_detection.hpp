@@ -20,11 +20,15 @@ namespace reshade::d3d9
 			UINT vertices = 0;
 			UINT drawcalls = 0;
 		};
+		struct clear_stats : public draw_stats
+		{
+			D3DVIEWPORT9 viewport = {};
+		};
 		struct depthstencil_info
 		{
 			draw_stats total_stats;
-			draw_stats current_stats; // Stats since last clear
-			std::vector<draw_stats> clears;
+			clear_stats current_stats; // Stats since last clear
+			std::vector<clear_stats> clears;
 		};
 
 		explicit buffer_detection(IDirect3DDevice9 *device) : _device(device) {}
@@ -44,12 +48,11 @@ namespace reshade::d3d9
 		// Detection Settings
 		bool disable_intz = false;
 		bool preserve_depth_buffers = false;
-		std::pair<com_ptr<IDirect3DSurface9>, UINT> depthstencil_clear_index = { nullptr, 0 };
-		UINT internal_clear_index = 0;
+		UINT depthstencil_clear_index = 0;
 
 		const auto &depth_buffer_counters() const { return _counters_per_used_depth_surface; }
 		IDirect3DSurface9 *current_depth_surface() const { return _depthstencil_original.get(); }
-		IDirect3DSurface9 *current_depth_replacement() const { return _depthstencil_replacement.get(); }
+		IDirect3DSurface9 *current_depth_replacement() const { return _depthstencil_replacement[0].get(); }
 
 		com_ptr<IDirect3DSurface9> find_best_depth_surface(UINT width, UINT height,
 			com_ptr<IDirect3DSurface9> override = nullptr);
@@ -65,16 +68,13 @@ namespace reshade::d3d9
 		IDirect3DDevice9 *const _device;
 
 #if RESHADE_DEPTH
+		bool check_aspect_ratio(UINT width_to_check, UINT height_to_check, UINT width, UINT height);
 		bool check_texture_format(const D3DSURFACE_DESC &desc);
 
-		bool update_depthstencil_replacement(com_ptr<IDirect3DSurface9> depthstencil);
+		bool update_depthstencil_replacement(com_ptr<IDirect3DSurface9> depthstencil, size_t index);
 
-		draw_stats _previous_stats;
-		draw_stats _best_copy_stats;
-		bool _first_empty_stats = true;
-		bool _depth_stencil_cleared = false;
 		com_ptr<IDirect3DSurface9> _depthstencil_original;
-		com_ptr<IDirect3DSurface9> _depthstencil_replacement;
+		std::vector<com_ptr<IDirect3DSurface9>> _depthstencil_replacement;
 		// Use "std::map" instead of "std::unordered_map" so that the iteration order is guaranteed
 		std::map<com_ptr<IDirect3DSurface9>, depthstencil_info> _counters_per_used_depth_surface;
 #endif
