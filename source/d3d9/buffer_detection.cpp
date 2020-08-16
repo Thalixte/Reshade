@@ -29,10 +29,20 @@ void reshade::d3d9::buffer_detection::reset(bool release_resources)
 		com_ptr<IDirect3DSurface9> depthstencil;
 		_device->GetDepthStencilSurface(&depthstencil);
 
+#if RESHADE_WIREFRAME
+		// ensure that all the depth surfaces are cleared at the end of the frame
+		for (com_ptr<IDirect3DSurface9> depth_surface : _depthstencil_replacement)
+		{
+			// Clear the replacement at the end of the frame, since the clear performed by the application was only applied to the original one
+			_device->SetDepthStencilSurface(depth_surface.get());
+			_device->Clear(0, nullptr, D3DCLEAR_ZBUFFER, 0, 1.0f, 0);
+	}
+#else
 		// Clear the first replacement at the end of the frame, since any clear performed by the application was redirected to a different one
 		// Do not have to do this to the others, since the first operation on any of them is a clear anyway (see 'on_clear_depthstencil')
 		_device->SetDepthStencilSurface(_depthstencil_replacement[0].get());
 		_device->Clear(0, nullptr, D3DCLEAR_ZBUFFER, 0, 1.0f, 0);
+#endif
 
 		// Keep the depth-stencil surface set to the first replacement (because of the above 'SetDepthStencilSurface' call) if the original one we want to replace was set, so starting next frame it is the one used again
 		if (depthstencil != _depthstencil_original)
