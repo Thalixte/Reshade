@@ -367,7 +367,6 @@
     </ProjectReference>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="D3D12PipelineLibrary.cpp" />
     <ClCompile Include="source\d2d1\d2d1.cpp" />
     <ClCompile Include="source\d3d10\buffer_detection.cpp" />
     <ClCompile Include="source\d3d10\d3d10.cpp" />
