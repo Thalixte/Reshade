@@ -7,6 +7,7 @@
 #include "d3d12_device.hpp"
 #include "d3d12_command_list.hpp"
 #include "d3d12_command_queue.hpp"
+#include "d3d12_pipeline_library.hpp"
 
 D3D12Device::D3D12Device(ID3D12Device *original) :
 	_orig(original),
@@ -333,7 +334,29 @@ LUID    STDMETHODCALLTYPE D3D12Device::GetAdapterLuid()
 HRESULT STDMETHODCALLTYPE D3D12Device::CreatePipelineLibrary(const void *pLibraryBlob, SIZE_T BlobLength, REFIID riid, void **ppPipelineLibrary)
 {
 	assert(_interface_version >= 1);
-	return static_cast<ID3D12Device1 *>(_orig)->CreatePipelineLibrary(pLibraryBlob, BlobLength, riid, ppPipelineLibrary);
+
+	const HRESULT hr = static_cast<ID3D12Device1 *>(_orig)->CreatePipelineLibrary(pLibraryBlob, BlobLength, riid, ppPipelineLibrary);
+	if (FAILED(hr))
+	{
+		LOG(WARN) << "ID3D12Device::CreatePipelineLibrary" << " failed with error code " << hr << '!';
+		return hr;
+	}
+
+	const auto pipeline_library_proxy = new D3D12PipelineLibrary(this, static_cast<ID3D12PipelineLibrary *>(*ppPipelineLibrary));
+
+	// Upgrade to the actual interface version requested here
+	if (pipeline_library_proxy->check_and_upgrade_interface(riid))
+	{
+		pipeline_library_proxy->_buffer_detection.init(_orig, nullptr, &_buffer_detection);
+
+		*ppPipelineLibrary = pipeline_library_proxy;
+	}
+	else // Do not hook object if we do not support the requested interface
+	{
+		delete pipeline_library_proxy; // Delete instead of release to keep reference count untouched
+	}
+
+	return hr;
 }
 HRESULT STDMETHODCALLTYPE D3D12Device::SetEventOnMultipleFenceCompletion(ID3D12Fence *const *ppFences, const UINT64 *pFenceValues, UINT NumFences, D3D12_MULTIPLE_FENCE_WAIT_FLAGS Flags, HANDLE hEvent)
 {
