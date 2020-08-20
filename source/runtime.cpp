@@ -429,6 +429,8 @@ bool reshade::runtime::load_effect(const std::filesystem::path &path, size_t ind
 			var.special = special_uniform::mouse_delta;
 		else if (special == "mousebutton")
 			var.special = special_uniform::mouse_button;
+		else if (special == "mousewheel")
+			var.special = special_uniform::mouse_wheel;
 		else if (special == "freepie")
 			var.special = special_uniform::freepie;
 		else if (special == "overlay_open")
@@ -549,6 +551,7 @@ void reshade::runtime::load_effects()
 
 #if RESHADE_GUI
 	_show_splash = true; // Always show splash bar when reloading everything
+	_reload_count++;
 #endif
 	_last_shader_reload_successful = true;
 
@@ -971,13 +974,17 @@ void reshade::runtime::update_and_render_effects()
 							set_uniform_value(variable, _input->is_key_down(keycode));
 					}
 					break;
-					}
+				}
 				case special_uniform::mouse_point:
+				{
 					set_uniform_value(variable, _input->mouse_position_x(), _input->mouse_position_y());
 					break;
+				}
 				case special_uniform::mouse_delta:
+				{
 					set_uniform_value(variable, _input->mouse_movement_delta_x(), _input->mouse_movement_delta_y());
 					break;
+				}
 				case special_uniform::mouse_button:
 				{
 					if (const int keycode = variable.annotation_as_int("keycode");
@@ -998,7 +1005,28 @@ void reshade::runtime::update_and_render_effects()
 					}
 					break;
 				}
+				case special_uniform::mouse_wheel:
+				{
+					const float min = variable.annotation_as_float("min");
+					const float max = variable.annotation_as_float("max");
+					float step = variable.annotation_as_float("step");
+					if (step == 0.0f)
+						step  = 1.0f;
+
+					float value[2] = { 0, 0 };
+					get_uniform_value(variable, value, 2);
+					value[1] = _input->mouse_wheel_delta();
+					value[0] = value[0] + value[1] * step;
+					if (min != max)
+					{
+						value[0] = std::max(value[0], min);
+						value[0] = std::min(value[0], max);
+					}
+					set_uniform_value(variable, value, 2);
+					break;
+				}
 				case special_uniform::freepie:
+				{
 					if (freepie_io_data data;
 						freepie_io_read(variable.annotation_as_int("index"), &data))
 					{
@@ -1010,14 +1038,19 @@ void reshade::runtime::update_and_render_effects()
 						set_uniform_value(variable, array_values, 4 * 2);
 					}
 					break;
-				case special_uniform::overlay_open:
+				}
 #if RESHADE_GUI
+				case special_uniform::overlay_open:
+				{
 					set_uniform_value(variable, _show_menu);
-#endif
 					break;
+				}
+#endif
 				case special_uniform::bufready_depth:
+				{
 					set_uniform_value(variable, _has_depth_texture);
 					break;
+				}
 			}
 		}
 	}
