@@ -114,19 +114,8 @@ HRESULT STDMETHODCALLTYPE D3D12PipelineLibrary::StorePipeline(LPCWSTR pName, ID3
 HRESULT STDMETHODCALLTYPE D3D12PipelineLibrary::LoadGraphicsPipeline(LPCWSTR pName, const D3D12_GRAPHICS_PIPELINE_STATE_DESC *pDesc, REFIID riid, void **ppPipelineState)
 {
 #if RESHADE_WIREFRAME
-	D3D12_GRAPHICS_PIPELINE_STATE_DESC newdesc = *pDesc;
-	D3D12_RASTERIZER_DESC &desc = newdesc.RasterizerState;
-
-	if (desc.FillMode == D3D12_FILL_MODE_SOLID)
-	{
-		newdesc.BlendState.AlphaToCoverageEnable = false;
-		desc.FillMode = D3D12_FILL_MODE_WIREFRAME;
-		desc.CullMode = D3D12_CULL_MODE_NONE;
-		desc.DepthClipEnable = false;
-		desc.FrontCounterClockwise = true;
-	}
-
-	return _orig->LoadGraphicsPipeline(pName, &newdesc, riid, ppPipelineState);
+	// this force pipelineState creation
+	return _orig->LoadGraphicsPipeline(L"wireframe", pDesc, riid, ppPipelineState);
 #else
 	return _orig->LoadGraphicsPipeline(pName, pDesc, riid, ppPipelineState);
 #endif
