@@ -5,38 +5,92 @@
 
 #include "dll_log.hpp"
 #include "hook_manager.hpp"
+#include "runtime_config.hpp"
 #include "version.h"
 #include <cassert>
 #include <Psapi.h>
 #include <Windows.h>
 
 HMODULE g_module_handle = nullptr;
-
 std::filesystem::path g_reshade_dll_path;
-std::filesystem::path g_reshade_config_path;
+std::filesystem::path g_reshade_base_path;
 std::filesystem::path g_target_executable_path;
 
-std::filesystem::path get_system_path()
+/// <summary>
+/// Expands any environment variables in the path (like "%userprofile%") and checks whether it points towards an existing directory.
+/// </summary>
+static bool resolve_env_path(std::filesystem::path &path, const std::filesystem::path &base = g_reshade_dll_path.parent_path())
 {
-	static std::filesystem::path system_path;
-	if (system_path.empty())
-	{
-		WCHAR buf[4096];
-		if (0 == GetEnvironmentVariableW(L"RESHADE_MODULE_PATH_OVERRIDE", buf, ARRAYSIZE(buf)))
-			// First try environment variable, use system directory if it does not exist or is empty
-			GetSystemDirectoryW(buf, ARRAYSIZE(buf));
+	WCHAR buf[4096];
+	if (!ExpandEnvironmentStringsW(path.c_str(), buf, ARRAYSIZE(buf)))
+		return false;
+	path = buf;
 
-		if (system_path = buf; system_path.has_stem())
-			system_path += L'\\'; // Always convert to directory path (with a trailing slash)
-		if (system_path.is_relative())
-			system_path = g_target_executable_path.parent_path() / system_path;
+	if (path.is_relative())
+		path = base / path;
 
-		system_path = system_path.lexically_normal();
-	}
+	if (!GetLongPathNameW(path.c_str(), buf, ARRAYSIZE(buf)))
+		return false;
+	path = buf;
 
-	return system_path;
+	path = path.lexically_normal();
+	if (!path.has_stem()) // Remove trailing slash
+		path = path.parent_path();
+
+	std::error_code ec;
+	return std::filesystem::is_directory(path, ec);
 }
 
+/// <summary>
+/// Returns the path that should be used as base for relative paths.
+/// </summary>
+std::filesystem::path get_base_path()
+{
+	std::filesystem::path result;
+
+	if (reshade::global_config().get("INSTALL", "BasePath", result) && resolve_env_path(result))
+		return result;
+
+	WCHAR buf[4096] = L"";
+	if (GetEnvironmentVariableW(L"RESHADE_BASE_PATH_OVERRIDE", buf, ARRAYSIZE(buf)) && resolve_env_path(result = buf))
+		return result;
+
+	std::error_code ec;
+	if (std::filesystem::exists(reshade::global_config().path(), ec) || !std::filesystem::exists(g_target_executable_path.parent_path() / L"ReShade.ini", ec))
+	{
+		return g_reshade_dll_path.parent_path();
+	}
+	else
+	{
+		// Use target executable directory when a unique configuration already exists
+		return g_target_executable_path.parent_path();
+	}
+}
+
+/// <summary>
+/// Returns the path to the "System32" directory or the module path from global configuration if it exists.
+/// </summary>
+std::filesystem::path get_system_path()
+{
+	static std::filesystem::path result;
+	if (!result.empty())
+		return result; // Return the cached path if it exists
+
+	if (reshade::global_config().get("INSTALL", "ModulePath", result) && resolve_env_path(result))
+		return result;
+
+	WCHAR buf[4096] = L"";
+	if (GetEnvironmentVariableW(L"RESHADE_MODULE_PATH_OVERRIDE", buf, ARRAYSIZE(buf)) && resolve_env_path(result = buf))
+		return result;
+
+	// First try environment variable, use system directory if it does not exist or is empty
+	GetSystemDirectoryW(buf, ARRAYSIZE(buf));
+	return result = buf;
+}
+
+/// <summary>
+/// Returns the path to the module file identified by the specified <paramref name="module"/> handle.
+/// </summary>
 static inline std::filesystem::path get_module_path(HMODULE module)
 {
 	WCHAR buf[4096];
@@ -66,11 +120,11 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE, LPSTR lpCmdLine, int nCmdShow
 	using namespace reshade;
 
 	g_module_handle = hInstance;
-	g_reshade_dll_path = get_module_path(nullptr);
-	g_reshade_config_path = g_reshade_dll_path.parent_path() / L"ReShade.ini";
-	g_target_executable_path = get_module_path(nullptr);
+	g_reshade_dll_path = get_module_path(hInstance);
+	g_target_executable_path = get_module_path(hInstance);
+	g_reshade_base_path = get_base_path();
 
-	log::open(std::filesystem::path(g_reshade_dll_path).replace_extension(L".log"));
+	log::open(g_reshade_base_path / g_reshade_dll_path.filename().replace_extension(L".log"));
 
 	hooks::register_module("user32.dll");
 
@@ -753,13 +807,14 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 	switch (fdwReason)
 	{
 	case DLL_PROCESS_ATTACH:
+		// Do NOT call 'DisableThreadLibraryCalls', since we are linking against the static CRT, which requires the thread notifications to work properly
+		// It does not do anything when static TLS is used anyway, which is the case (see https://docs.microsoft.com/windows/win32/api/libloaderapi/nf-libloaderapi-disablethreadlibrarycalls)
 		g_module_handle = hModule;
 		g_reshade_dll_path = get_module_path(hModule);
-		g_reshade_config_path = g_reshade_dll_path;
-		g_reshade_config_path.replace_extension(L".ini");
 		g_target_executable_path = get_module_path(nullptr);
+		g_reshade_base_path = get_base_path(); // Needs to happen after DLL and executable path are set (since those are referenced in 'get_base_path')
 
-		log::open(std::filesystem::path(g_reshade_dll_path).replace_extension(L".log"));
+		log::open(g_reshade_base_path / g_reshade_dll_path.filename().replace_extension(L".log"));
 
 #  ifdef WIN64
 		LOG(INFO) << "Initializing crosire's ReShade version '" VERSION_STRING_FILE "' (64-bit) built on '" VERSION_DATE " " VERSION_TIME "' loaded from " << g_reshade_dll_path << " into " << g_target_executable_path << " ...";
@@ -767,20 +822,12 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 		LOG(INFO) << "Initializing crosire's ReShade version '" VERSION_STRING_FILE "' (32-bit) built on '" VERSION_DATE " " VERSION_TIME "' loaded from " << g_reshade_dll_path << " into " << g_target_executable_path << " ...";
 #  endif
 
-		// First look for an API-named configuration file
-		if (std::error_code ec; !std::filesystem::exists(g_reshade_config_path, ec))
-			// On failure check for a "ReShade.ini" in the application directory
-			g_reshade_config_path = g_target_executable_path.parent_path() / L"ReShade.ini";
-		if (std::error_code ec; !std::filesystem::exists(g_reshade_config_path, ec))
-			// If neither exist create a "ReShade.ini" in the ReShade DLL directory
-			g_reshade_config_path = g_reshade_dll_path.parent_path() / L"ReShade.ini";
-
 #  ifndef NDEBUG
 		g_exception_handler_handle = AddVectoredExceptionHandler(1, [](PEXCEPTION_POINTERS ex) -> LONG {
 			// Ignore debugging and some common language exceptions
 			if (const DWORD code = ex->ExceptionRecord->ExceptionCode;
 				code == CONTROL_C_EXIT || code == 0x406D1388 /* SetThreadName */ ||
-				code == DBG_PRINTEXCEPTION_C || code == DBG_PRINTEXCEPTION_WIDE_C ||
+				code == DBG_PRINTEXCEPTION_C || code == DBG_PRINTEXCEPTION_WIDE_C || code == STATUS_BREAKPOINT ||
 				code == 0xE0434352 /* CLR exception */ ||
 				code == 0xE06D7363 /* Visual C++ exception */)
 				goto continue_search;
@@ -860,10 +907,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 
 		hooks::uninstall();
 
-#  ifndef NDEBUG
-		RemoveVectoredExceptionHandler(g_exception_handler_handle);
-#  endif
-
 		// Module is now invalid, so break out of any message loops that may still have it in the call stack (see 'HookGetMessage' implementation in input.cpp)
 		// This is necessary since a different thread may have called into the 'GetMessage' hook from ReShade, but not receive a message until after the module was unloaded
 		// At that point it would return to code that was already unloaded and crash
@@ -872,6 +915,10 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 		// This duration has to be slightly larger than the timeout in 'HookGetMessage' to ensure success
 		// It should also be large enough to cover any potential other calls to previous hooks that may still be in flight from other threads
 		Sleep(1050);
+
+#  ifndef NDEBUG
+		RemoveVectoredExceptionHandler(g_exception_handler_handle);
+#  endif
 
 		LOG(INFO) << "Finished exiting.";
 		break;

@@ -21,6 +21,30 @@
 // Use this to filter out internal device created by the DXGI runtime in the D3D device creation hooks 
 extern thread_local bool g_in_dxgi_runtime;
 
+static void dump_format(DXGI_FORMAT format)
+{
+	switch (format)
+	{
+	case DXGI_FORMAT_R8G8B8A8_UNORM:
+		LOG(INFO) << "  | Format                                  | DXGI_FORMAT_R8G8B8A8_UNORM              |";
+		break;
+	case DXGI_FORMAT_R8G8B8A8_UNORM_SRGB:
+		LOG(INFO) << "  | Format                                  | DXGI_FORMAT_R8G8B8A8_UNORM_SRGB         |";
+		break;
+	case DXGI_FORMAT_B8G8R8A8_UNORM:
+		LOG(INFO) << "  | Format                                  | DXGI_FORMAT_B8G8R8A8_UNORM              |";
+		break;
+	case DXGI_FORMAT_B8G8R8A8_UNORM_SRGB:
+		LOG(INFO) << "  | Format                                  | DXGI_FORMAT_B8G8R8A8_UNORM_SRGB         |";
+		break;
+	case DXGI_FORMAT_R10G10B10A2_UNORM:
+		LOG(INFO) << "  | Format                                  | DXGI_FORMAT_R10G10B10A2_UNORM           |";
+		break;
+	default:
+		LOG(INFO) << "  | Format                                  | " << std::setw(39) << format << " |";
+		break;
+	}
+}
 static void dump_sample_desc(const DXGI_SAMPLE_DESC &desc)
 {
 	LOG(INFO) <<     "  | SampleCount                             | " << std::setw(39) << desc.Count   << " |";
@@ -47,11 +71,11 @@ static void dump_and_modify_swapchain_desc(DXGI_SWAP_CHAIN_DESC &desc)
 	LOG(INFO) << "  | Width                                   | " << std::setw(39) << desc.BufferDesc.Width   << " |";
 	LOG(INFO) << "  | Height                                  | " << std::setw(39) << desc.BufferDesc.Height  << " |";
 	LOG(INFO) << "  | RefreshRate                             | " << std::setw(19) << desc.BufferDesc.RefreshRate.Numerator << ' ' << std::setw(19) << desc.BufferDesc.RefreshRate.Denominator << " |";
-	LOG(INFO) << "  | Format                                  | " << std::setw(39) << desc.BufferDesc.Format  << " |";
+	dump_format(desc.BufferDesc.Format);
 	LOG(INFO) << "  | ScanlineOrdering                        | " << std::setw(39) << desc.BufferDesc.ScanlineOrdering   << " |";
 	LOG(INFO) << "  | Scaling                                 | " << std::setw(39) << desc.BufferDesc.Scaling << " |";
 	dump_sample_desc(desc.SampleDesc);
-	LOG(INFO) << "  | BufferUsage                             | " << std::setw(39) << desc.BufferUsage  << " |";
+	LOG(INFO) << "  | BufferUsage                             | " << std::setw(39) << std::hex << desc.BufferUsage << std::dec << " |";
 	LOG(INFO) << "  | BufferCount                             | " << std::setw(39) << desc.BufferCount  << " |";
 	LOG(INFO) << "  | OutputWindow                            | " << std::setw(39) << desc.OutputWindow << " |";
 	LOG(INFO) << "  | Windowed                                | " << std::setw(39) << (desc.Windowed ? "TRUE" : "FALSE") << " |";
@@ -59,32 +83,26 @@ static void dump_and_modify_swapchain_desc(DXGI_SWAP_CHAIN_DESC &desc)
 	LOG(INFO) << "  | Flags                                   | " << std::setw(39) << std::hex << desc.Flags << std::dec << " |";
 	LOG(INFO) << "  +-----------------------------------------+-----------------------------------------+";
 
-	{ const reshade::ini_file config(g_reshade_config_path);
+	if (reshade::global_config().get("APP", "ForceWindowed"))
+	{
+		desc.Windowed = TRUE;
+	}
+	if (reshade::global_config().get("APP", "ForceFullscreen"))
+	{
+		desc.Windowed = FALSE;
+	}
 
-		if (bool force_windowed;
-			config.get("APP", "ForceWindowed", force_windowed) && force_windowed)
-		{
-			desc.Windowed = TRUE;
-		}
+	if (unsigned int force_resolution[2] = {};
+		reshade::global_config().get("APP", "ForceResolution", force_resolution) &&
+		force_resolution[0] != 0 && force_resolution[1] != 0)
+	{
+		desc.BufferDesc.Width = force_resolution[0];
+		desc.BufferDesc.Height = force_resolution[1];
+	}
 
-		if (bool force_fullscreen;
-			config.get("APP", "ForceFullscreen", force_fullscreen) && force_fullscreen)
-		{
-			desc.Windowed = FALSE;
-		}
-
-		if (unsigned int force_resolution[2];
-			config.get("APP", "ForceResolution", force_resolution) && force_resolution[0] != 0 && force_resolution[1] != 0)
-		{
-			desc.BufferDesc.Width = force_resolution[0];
-			desc.BufferDesc.Height = force_resolution[1];
-		}
-
-		if (bool force_10_bit_format;
-			config.get("APP", "Force10BitFormat", force_10_bit_format) && force_10_bit_format)
-		{
-			desc.BufferDesc.Format = DXGI_FORMAT_R10G10B10A2_UNORM;
-		}
+	if (reshade::global_config().get("APP", "Force10BitFormat"))
+	{
+		desc.BufferDesc.Format = DXGI_FORMAT_R10G10B10A2_UNORM;
 	}
 }
 static void dump_and_modify_swapchain_desc(DXGI_SWAP_CHAIN_DESC1 &desc, DXGI_SWAP_CHAIN_FULLSCREEN_DESC &fullscreen_desc)
@@ -96,12 +114,12 @@ static void dump_and_modify_swapchain_desc(DXGI_SWAP_CHAIN_DESC1 &desc, DXGI_SWA
 	LOG(INFO) << "  | Width                                   | " << std::setw(39) << desc.Width   << " |";
 	LOG(INFO) << "  | Height                                  | " << std::setw(39) << desc.Height  << " |";
 	LOG(INFO) << "  | RefreshRate                             | " << std::setw(19) << fullscreen_desc.RefreshRate.Numerator << ' ' << std::setw(19) << fullscreen_desc.RefreshRate.Denominator << " |";
-	LOG(INFO) << "  | Format                                  | " << std::setw(39) << desc.Format  << " |";
+	dump_format(desc.Format);
 	LOG(INFO) << "  | Stereo                                  | " << std::setw(39) << (desc.Stereo ? "TRUE" : "FALSE") << " |";
 	LOG(INFO) << "  | ScanlineOrdering                        | " << std::setw(39) << fullscreen_desc.ScanlineOrdering << " |";
 	LOG(INFO) << "  | Scaling                                 | " << std::setw(39) << fullscreen_desc.Scaling << " |";
 	dump_sample_desc(desc.SampleDesc);
-	LOG(INFO) << "  | BufferUsage                             | " << std::setw(39) << desc.BufferUsage << " |";
+	LOG(INFO) << "  | BufferUsage                             | " << std::setw(39) << std::hex << desc.BufferUsage << std::dec << " |";
 	LOG(INFO) << "  | BufferCount                             | " << std::setw(39) << desc.BufferCount << " |";
 	LOG(INFO) << "  | Windowed                                | " << std::setw(39) << (fullscreen_desc.Windowed ? "TRUE" : "FALSE") << " |";
 	LOG(INFO) << "  | SwapEffect                              | " << std::setw(39) << desc.SwapEffect  << " |";
@@ -109,32 +127,26 @@ static void dump_and_modify_swapchain_desc(DXGI_SWAP_CHAIN_DESC1 &desc, DXGI_SWA
 	LOG(INFO) << "  | Flags                                   | " << std::setw(39) << std::hex << desc.Flags << std::dec << " |";
 	LOG(INFO) << "  +-----------------------------------------+-----------------------------------------+";
 
-	{ const reshade::ini_file config(g_reshade_config_path);
+	if (reshade::global_config().get("DXGI", "ForceWindowed"))
+	{
+		fullscreen_desc.Windowed = TRUE;
+	}
+	if (reshade::global_config().get("DXGI", "ForceFullscreen"))
+	{
+		fullscreen_desc.Windowed = FALSE;
+	}
 
-		if (bool force_windowed;
-			config.get("APP", "ForceWindowed", force_windowed) && force_windowed)
-		{
-			fullscreen_desc.Windowed = TRUE;
-		}
+	if (unsigned int force_resolution[2] = {};
+		reshade::global_config().get("DXGI", "ForceResolution", force_resolution) &&
+		force_resolution[0] != 0 && force_resolution[1] != 0)
+	{
+		desc.Width = force_resolution[0];
+		desc.Height = force_resolution[1];
+	}
 
-		if (bool force_fullscreen;
-			config.get("APP", "ForceFullscreen", force_fullscreen) && force_fullscreen)
-		{
-			fullscreen_desc.Windowed = FALSE;
-		}
-
-		if (unsigned int force_resolution[2];
-			config.get("APP", "ForceResolution", force_resolution) && force_resolution[0] != 0 && force_resolution[1] != 0)
-		{
-			desc.Width = force_resolution[0];
-			desc.Height = force_resolution[1];
-		}
-
-		if (bool force_10_bit_format;
-			config.get("APP", "Force10BitFormat", force_10_bit_format) && force_10_bit_format)
-		{
-			desc.Format = DXGI_FORMAT_R10G10B10A2_UNORM;
-		}
+	if (reshade::global_config().get("DXGI", "Force10BitFormat"))
+	{
+		desc.Format = DXGI_FORMAT_R10G10B10A2_UNORM;
 	}
 }
 
@@ -224,12 +236,9 @@ static void init_reshade_runtime_d3d(T *&swapchain, UINT direct3d_version, const
 
 	if (swapchain_proxy != nullptr)
 	{
-		{ const reshade::ini_file config(g_reshade_config_path);
-
-			config.get("APP", "ForceVSync", swapchain_proxy->_force_vsync);
-			config.get("APP", "ForceResolution", swapchain_proxy->_force_resolution);
-			config.get("APP", "Force10BitFormat", swapchain_proxy->_force_10_bit_format);
-		}
+		reshade::global_config().get("DXGI", "ForceVSync", swapchain_proxy->_force_vsync);
+		reshade::global_config().get("DXGI", "ForceResolution", swapchain_proxy->_force_resolution);
+		reshade::global_config().get("DXGI", "Force10BitFormat", swapchain_proxy->_force_10_bit_format);
 
 #if RESHADE_VERBOSE_LOG
 		LOG(INFO) << "Returning IDXGISwapChain" << swapchain_proxy->_interface_version << " object " << swapchain_proxy << '.';
@@ -472,4 +481,15 @@ HOOK_EXPORT HRESULT WINAPI DXGIGetDebugInterface1(UINT Flags, REFIID riid, void 
 		return E_NOINTERFACE;
 
 	return trampoline(Flags, riid, pDebug);
+}
+
+HOOK_EXPORT HRESULT WINAPI DXGIDeclareAdapterRemovalSupport()
+{
+	static const auto trampoline = reshade::hooks::call(DXGIDeclareAdapterRemovalSupport);
+
+	// DXGIDeclareAdapterRemovalSupport is supported on Windows 10 version 1803 and up, silently ignore on older systems
+	if (trampoline == nullptr)
+		return S_OK;
+
+	return trampoline();
 }

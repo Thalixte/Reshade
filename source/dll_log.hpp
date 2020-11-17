@@ -9,7 +9,12 @@
 #include <sstream>
 #include <filesystem>
 #include <utf8/unchecked.h>
-#include <combaseapi.h> // Included for REFIID and HRESULT
+#include <combaseapi.h> // REFIID, HRESULT
+
+#undef INFO
+#undef ERROR // This is defined in the Windows SDK headers
+#undef WARN
+#undef DEBUG
 
 #define LOG(LEVEL) LOG_##LEVEL()
 #define LOG_INFO() reshade::log::message(reshade::log::level::info)
@@ -76,6 +81,16 @@ namespace reshade::log
 				return *this << "E_NOINTERFACE";
 			case E_FAIL:
 				return *this << "E_FAIL";
+			case 0x8876017C:
+				return *this << "D3DERR_OUTOFVIDEOMEMORY";
+			case 0x88760868:
+				return *this << "D3DERR_DEVICELOST";
+			case 0x8876086A:
+				return *this << "D3DERR_NOTAVAILABLE";
+			case 0x8876086C:
+				return *this << "D3DERR_INVALIDCALL";
+			case 0x88760870:
+				return *this << "D3DERR_DEVICEREMOVED";
 			case DXGI_ERROR_INVALID_CALL:
 				return *this << "DXGI_ERROR_INVALID_CALL";
 			case DXGI_ERROR_UNSUPPORTED:

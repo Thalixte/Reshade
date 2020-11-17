@@ -3,8 +3,8 @@
  * License: https://github.com/crosire/reshade#license
  */
 
-#include "dll_log.hpp"
 #include "input.hpp"
+#include "dll_log.hpp"
 #include "hook_manager.hpp"
 #include <mutex>
 #include <cassert>
@@ -184,6 +184,9 @@ bool reshade::input::handle_window_message(const void *message_data)
 				input->_mouse_wheel_delta += static_cast<short>(raw_data.data.mouse.usButtonData) / WHEEL_DELTA;
 			break;
 		case RIM_TYPEKEYBOARD:
+			if (raw_data.data.keyboard.VKey == 0)
+				break; // Ignore messages without a valid key code
+
 			is_keyboard_message = true;
 			// Do not block key up messages if the key down one was not blocked previously
 			if (input->_block_keyboard && (raw_data.data.keyboard.Flags & RI_KEY_BREAK) != 0 && raw_data.data.keyboard.VKey < 0xFF && (input->_keys[raw_data.data.keyboard.VKey] & 0x04) == 0)
@@ -210,7 +213,7 @@ bool reshade::input::handle_window_message(const void *message_data)
 		break;
 	case WM_KEYDOWN:
 	case WM_SYSKEYDOWN:
-		assert(details.wParam < ARRAYSIZE(input->_keys));
+		assert(details.wParam > 0 && details.wParam < ARRAYSIZE(input->_keys));
 		input->_keys[details.wParam] = 0x88;
 		input->_keys_time[details.wParam] = details.time;
 		if (input->_block_keyboard)
@@ -218,7 +221,7 @@ bool reshade::input::handle_window_message(const void *message_data)
 		break;
 	case WM_KEYUP:
 	case WM_SYSKEYUP:
-		assert(details.wParam < ARRAYSIZE(input->_keys));
+		assert(details.wParam > 0 && details.wParam < ARRAYSIZE(input->_keys));
 		// Do not block key up messages if the key down one was not blocked previously (so key does not get stuck for the application)
 		if (input->_block_keyboard && (input->_keys[details.wParam] & 0x04) == 0)
 			is_keyboard_message = false;
@@ -226,18 +229,21 @@ bool reshade::input::handle_window_message(const void *message_data)
 		input->_keys_time[details.wParam] = details.time;
 		break;
 	case WM_LBUTTONDOWN:
+	case WM_LBUTTONDBLCLK: // Double clicking generates this sequence: WM_LBUTTONDOWN -> WM_LBUTTONUP -> WM_LBUTTONDBLCLK -> WM_LBUTTONUP, so handle it like a normal down
 		input->_keys[VK_LBUTTON] = 0x88;
 		break;
 	case WM_LBUTTONUP:
 		input->_keys[VK_LBUTTON] = 0x08;
 		break;
 	case WM_RBUTTONDOWN:
+	case WM_RBUTTONDBLCLK:
 		input->_keys[VK_RBUTTON] = 0x88;
 		break;
 	case WM_RBUTTONUP:
 		input->_keys[VK_RBUTTON] = 0x08;
 		break;
 	case WM_MBUTTONDOWN:
+	case WM_MBUTTONDBLCLK:
 		input->_keys[VK_MBUTTON] = 0x88;
 		break;
 	case WM_MBUTTONUP:
@@ -267,7 +273,7 @@ bool reshade::input::is_key_down(unsigned int keycode) const
 bool reshade::input::is_key_pressed(unsigned int keycode) const
 {
 	assert(keycode < ARRAYSIZE(_keys));
-	return keycode < ARRAYSIZE(_keys) && (_keys[keycode] & 0x88) == 0x88;
+	return keycode > 0 && keycode < ARRAYSIZE(_keys) && (_keys[keycode] & 0x88) == 0x88;
 }
 bool reshade::input::is_key_pressed(unsigned int keycode, bool ctrl, bool shift, bool alt, bool force_modifiers) const
 {
@@ -280,7 +286,7 @@ bool reshade::input::is_key_pressed(unsigned int keycode, bool ctrl, bool shift,
 bool reshade::input::is_key_released(unsigned int keycode) const
 {
 	assert(keycode < ARRAYSIZE(_keys));
-	return keycode < ARRAYSIZE(_keys) && (_keys[keycode] & 0x88) == 0x08;
+	return keycode > 0 && keycode < ARRAYSIZE(_keys) && (_keys[keycode] & 0x88) == 0x08;
 }
 
 bool reshade::input::is_any_key_down() const
@@ -460,22 +466,58 @@ static inline bool is_blocking_keyboard_input()
 
 HOOK_EXPORT BOOL WINAPI HookGetMessageA(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax)
 {
+#if 1
 	// Implement 'GetMessage' with a timeout (see also DLL_PROCESS_DETACH in dllmain.cpp for more explanation)
 	while (!PeekMessageA(lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax, PM_REMOVE) && g_module_handle != nullptr)
 		MsgWaitForMultipleObjects(0, nullptr, FALSE, 1000, QS_ALLINPUT);
 
 	if (g_module_handle == nullptr)
 		std::memset(lpMsg, 0, sizeof(MSG)); // Clear message structure, so application does not process it
+#else
+	static const auto trampoline = reshade::hooks::call(HookGetMessageA);
+	const BOOL result = trampoline(lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax);
+	if (result < 0) // If there is an error, the return value is negative (https://docs.microsoft.com/windows/win32/api/winuser/nf-winuser-getmessage)
+		return result;
+
+	assert(lpMsg != nullptr);
+
+	if (lpMsg->hwnd != nullptr && reshade::input::handle_window_message(lpMsg))
+	{
+		// We still want 'WM_CHAR' messages, so translate message
+		TranslateMessage(lpMsg);
+
+		// Change message so it is ignored by the recipient window
+		lpMsg->message = WM_NULL;
+	}
+#endif
 
 	return lpMsg->message != WM_QUIT;
 }
 HOOK_EXPORT BOOL WINAPI HookGetMessageW(LPMSG lpMsg, HWND hWnd, UINT wMsgFilterMin, UINT wMsgFilterMax)
 {
+#if 1
 	while (!PeekMessageW(lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax, PM_REMOVE) && g_module_handle != nullptr)
 		MsgWaitForMultipleObjects(0, nullptr, FALSE, 1000, QS_ALLINPUT);
 
 	if (g_module_handle == nullptr)
 		std::memset(lpMsg, 0, sizeof(MSG));
+#else
+	static const auto trampoline = reshade::hooks::call(HookGetMessageW);
+	const BOOL result = trampoline(lpMsg, hWnd, wMsgFilterMin, wMsgFilterMax);
+	if (result < 0)
+		return result;
+
+	assert(lpMsg != nullptr);
+
+	if (lpMsg->hwnd != nullptr && reshade::input::handle_window_message(lpMsg))
+	{
+		// We still want 'WM_CHAR' messages, so translate message
+		TranslateMessage(lpMsg);
+
+		// Change message so it is ignored by the recipient window
+		lpMsg->message = WM_NULL;
+	}
+#endif
 
 	return lpMsg->message != WM_QUIT;
 }

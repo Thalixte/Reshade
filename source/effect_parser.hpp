@@ -51,7 +51,7 @@ namespace reshadefx
 		bool expect(char tok) { return expect(static_cast<tokenid>(tok)); }
 		bool expect(tokenid tokid);
 
-		bool accept_symbol(std::string &identifier, scope &scope, symbol &symbol);
+		bool accept_symbol(std::string &identifier, scoped_symbol &symbol);
 		bool accept_type_class(type &type);
 		bool accept_type_qualifiers(type &type);
 		bool accept_unary_op();
@@ -59,7 +59,7 @@ namespace reshadefx
 		bool peek_multary_op(unsigned int &precedence) const;
 		bool accept_assignment_op();
 
-		bool parse_top();
+		void parse_top(bool &parse_success);
 		bool parse_struct();
 		bool parse_function(type type, std::string name);
 		bool parse_variable(type type, std::string name, bool global = false);
@@ -80,8 +80,8 @@ namespace reshadefx
 		token _token, _token_next, _token_backup;
 		std::unique_ptr<class lexer> _lexer;
 		size_t _lexer_backup_offset = 0;
-		reshadefx::type _current_return_type;
 		std::vector<uint32_t> _loop_break_target_stack;
 		std::vector<uint32_t> _loop_continue_target_stack;
+		reshadefx::function_info *_current_function = nullptr;
 	};
 }

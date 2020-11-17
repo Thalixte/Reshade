@@ -19,6 +19,8 @@ struct ImDrawData;
 struct ImGuiContext;
 #endif
 
+extern volatile long g_network_traffic;
+
 namespace reshade
 {
 	class ini_file; // Forward declarations to avoid excessive #include
@@ -166,9 +168,10 @@ namespace reshade
 		/// <summary>
 		/// Compile effect from the specified source file and initialize textures, uniforms and techniques.
 		/// </summary>
-		/// <param name="path">The path to an effect source code file.</param>
-		/// <param name="index">The ID of the effect.</param>
-		bool load_effect(const std::filesystem::path &path, size_t index);
+		/// <param name="source_file">The path to an effect source code file.</param>
+		/// <param name="preset">The preset to be used to fill specialization constants or check whether loading can be skipped.</param>
+		/// <param name="effect_index">The ID of the effect.</param>
+		bool load_effect(const std::filesystem::path &source_file, const reshade::ini_file &preset, size_t &effect_index, bool preprocess_required = false);
 		/// <summary>
 		/// Load all effects found in the effect search paths.
 		/// </summary>
@@ -176,17 +179,28 @@ namespace reshade
 		/// <summary>
 		/// Initialize resources for the effect and load the effect module.
 		/// </summary>
-		/// <param name="index">The ID of the effect.</param>
-		virtual bool init_effect(size_t index) = 0;
+		/// <param name="effect_index">The ID of the effect.</param>
+		virtual bool init_effect(size_t effect_index) = 0;
 		/// <summary>
 		/// Unload the specified effect.
 		/// </summary>
-		/// <param name="index">The ID of the effect.</param>
-		virtual void unload_effect(size_t index);
+		/// <param name="effect_index">The ID of the effect.</param>
+		virtual void unload_effect(size_t effect_index);
 		/// <summary>
 		/// Unload all effects currently loaded.
 		/// </summary>
 		virtual void unload_effects();
+
+		/// <summary>
+		/// Load compiled shader data from the cache.
+		/// </summary>
+		bool load_effect_cache(const std::filesystem::path &source_file, const size_t hash, std::string &source) const;
+		bool load_effect_cache(const std::filesystem::path &source_file, const std::string &entry_point, const size_t hash, std::vector<char> &cso, std::string &dasm) const;
+		/// <summary>
+		/// Save compiled shader data to the cache.
+		/// </summary>
+		bool save_effect_cache(const std::filesystem::path &source_file, const size_t hash, const std::string &source) const;
+		bool save_effect_cache(const std::filesystem::path &source_file, const std::string &entry_point, const size_t hash, const std::vector<char> &cso, const std::string &dasm) const;
 
 		/// <summary>
 		/// Load image files and update textures with image data.
@@ -306,18 +320,20 @@ namespace reshade
 		// == Configuration ===
 		bool _needs_update = false;
 		unsigned long _latest_version[3] = {};
-		std::filesystem::path _configuration_path;
+		std::filesystem::path _config_path;
 		std::vector<std::function<void(ini_file &)>> _save_config_callables;
 		std::vector<std::function<void(const ini_file &)>> _load_config_callables;
 
 		// === Effect Loading ===
 		bool _no_debug_info = 0;
 		bool _no_reload_on_init = false;
-		bool _last_shader_reload_successful = true;
-		bool _last_texture_reload_successful = true;
+		bool _effect_load_skipping = false;
+		bool _load_option_disable_skipping = false;
+		std::atomic<int> _last_shader_reload_successfull = true;
+		bool _last_texture_reload_successfull = true;
 		bool _textures_loaded = false;
 		unsigned int _reload_key_data[4];
-		size_t _reload_total_effects = 1;
+		unsigned int _performance_mode_key_data[4];
 		std::vector<size_t> _reload_compile_queue;
 		std::atomic<size_t> _reload_remaining_effects = 0;
 		std::mutex _reload_mutex;
@@ -326,6 +342,7 @@ namespace reshade
 		std::vector<std::string> _preset_preprocessor_definitions;
 		std::vector<std::filesystem::path> _effect_search_paths;
 		std::vector<std::filesystem::path> _texture_search_paths;
+		std::filesystem::path _intermediate_cache_path;
 		std::chrono::high_resolution_clock::time_point _last_reload_time;
 
 		// === Screenshots ===
@@ -358,20 +375,22 @@ namespace reshade
 		std::chrono::high_resolution_clock::time_point _last_preset_switching_time;
 
 #if RESHADE_GUI
-		void init_ui();
-		void deinit_ui();
+		void init_gui();
+		void deinit_gui();
 		void build_font_atlas();
 
-		void draw_ui();
-		void draw_ui_home();
-		void draw_ui_settings();
-		void draw_ui_statistics();
-		void draw_ui_log();
-		void draw_ui_about();
+		void load_custom_style();
+		void save_custom_style();
+
+		void draw_gui();
+		void draw_gui_home();
+		void draw_gui_settings();
+		void draw_gui_statistics();
+		void draw_gui_log();
+		void draw_gui_about();
 
 		void draw_code_editor();
 		void draw_code_viewer();
-		void draw_preset_explorer();
 		void draw_variable_editor();
 		void draw_technique_editor();
 
@@ -381,18 +400,18 @@ namespace reshade
 		ImGuiContext *_imgui_context = nullptr;
 		std::unique_ptr<texture> _imgui_font_atlas;
 		std::vector<std::pair<std::string, std::function<void()>>> _menu_callables;
-		bool _show_menu = false;
-		bool _show_clock = false;
-		bool _show_fps = false;
-		bool _show_frametime = false;
 		bool _show_splash = true;
+		bool _show_overlay = false;
+		bool _show_fps = false;
+		bool _show_clock = false;
+		bool _show_frametime = false;
 		bool _show_code_editor = false;
 		bool _show_code_viewer = false;
 		bool _show_screenshot_message = true;
 		bool _no_font_scaling = false;
 		bool _rebuild_font_atlas = true;
 		unsigned int _reload_count = 0;
-		unsigned int _menu_key_data[4];
+		unsigned int _overlay_key_data[4];
 		int _fps_pos = 1;
 		int _clock_format = 0;
 		int _input_processing_mode = 2;
@@ -407,8 +426,7 @@ namespace reshade
 		size_t _selected_technique = std::numeric_limits<size_t>::max();
 		unsigned int _tutorial_index = 0;
 		unsigned int _effects_expanded_state = 2;
-		float _variable_editor_height = 0.0f;
-		std::filesystem::path _current_browse_path;
+		float _variable_editor_height = 300.0f;
 
 		// === User Interface - Settings ===
 		int _font_size = 13;
@@ -420,6 +438,7 @@ namespace reshade
 		std::filesystem::path _file_selection_path;
 		float _fps_col[4] = { 1.0f, 1.0f, 0.784314f, 1.0f };
 		float _fps_scale = 1.0f;
+		bool _show_force_load_effects_button = true;
 
 #if RESHADE_WIREFRAME
 		// === Wireframe Mode ===
@@ -441,7 +460,7 @@ namespace reshade
 		std::vector<std::string> _log_lines;
 
 		// === User Interface - Code Editor ===
-		imgui_code_editor _editor, _viewer;
+		gui::code_editor _editor, _viewer;
 		std::filesystem::path _editor_file;
 		std::string _viewer_entry_point;
 #endif

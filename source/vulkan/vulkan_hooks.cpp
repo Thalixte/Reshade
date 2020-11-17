@@ -6,7 +6,7 @@
 #include "dll_log.hpp"
 #include "hook_manager.hpp"
 #include "runtime_vk.hpp"
-#include <vk_layer.h>
+#include <vulkan/vk_layer.h>
 #include <vk_layer_dispatch_table.h>
 #include "format_utils.hpp"
 #include "lockfree_table.hpp"
@@ -466,6 +466,7 @@ VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physicalDevice, const VkDevi
 	INIT_DEVICE_PROC(CmdCopyBufferToImage);
 	INIT_DEVICE_PROC(CmdCopyImageToBuffer);
 	INIT_DEVICE_PROC(CmdUpdateBuffer);
+	INIT_DEVICE_PROC(CmdClearColorImage);
 	INIT_DEVICE_PROC(CmdClearDepthStencilImage);
 	INIT_DEVICE_PROC(CmdClearAttachments);
 	INIT_DEVICE_PROC(CmdPipelineBarrier);
@@ -710,15 +711,7 @@ VkResult VKAPI_CALL vkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR *pPr
 			_wireframe_mode = runtime->wireframe_mode();
 #endif
 
-			VkSemaphore signal = VK_NULL_HANDLE;
-			if (runtime->on_present(queue, pPresentInfo->pImageIndices[i], wait_semaphores, signal); signal != VK_NULL_HANDLE)
-			{
-				// The queue submit in 'on_present' now waits on the requested wait semaphores
-				// The next queue submit should therefore wait on the semaphore that was signaled by the last 'on_present' submit
-				// This effectively builds a linear chain of submissions that each wait on the previous
-				wait_semaphores.clear();
-				wait_semaphores.push_back(signal);
-			}
+			runtime->on_present(queue, pPresentInfo->pImageIndices[i], wait_semaphores);
 		}
 	}
 

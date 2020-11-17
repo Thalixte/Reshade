@@ -102,6 +102,9 @@
     <ClCompile Include="source\d3d9\d3d9_device.cpp">
       <Filter>hooks\d3d9</Filter>
     </ClCompile>
+    <ClCompile Include="source\d3d9\d3d9_internal.cpp">
+      <Filter>hooks\d3d9</Filter>
+    </ClCompile>
     <ClCompile Include="source\d3d9\d3d9_profiling.cpp">
       <Filter>hooks\d3d9</Filter>
     </ClCompile>
@@ -385,13 +388,9 @@
     <None Include="res\resource.rc2">
       <Filter>resources</Filter>
     </None>
-    <None Include="res\shaders\copy_ps.cso" />
-    <None Include="res\shaders\fullscreen_vs.cso" />
-    <None Include="res\shaders\imgui_vs.cso" />
-    <None Include="res\shaders\imgui_ps.cso" />
-    <None Include="res\shaders\imgui_vs.spv" />
-    <None Include="res\shaders\imgui_ps.spv" />
-    <None Include="res\shaders\mipmap_cs.cso" />
+    <None Include="tools\verbuild.ps1">
+      <Filter>resources</Filter>
+    </None>
   </ItemGroup>
   <ItemGroup>
     <FxCompile Include="res\shaders\copy_ps.hlsl">

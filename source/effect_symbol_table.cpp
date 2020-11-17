@@ -5,6 +5,7 @@
 
 #include "effect_symbol_table.hpp"
 #include <cassert>
+#include <malloc.h> // alloca
 #include <algorithm> // std::upper_bound, std::sort
 
 #pragma region Import intrinsic functions
@@ -107,15 +108,18 @@ unsigned int reshadefx::type::rank(const type &src, const type &dst)
 	//  - Floating point has a higher rank than integer types
 	//  - Integer to floating point promotion has a higher rank than floating point to integer conversion
 	//  - Signed to unsigned integer conversion has a higher rank than unsigned to signed integer conversion
-	static const int ranks[4][4] = {
-		{ 5, 4, 4, 4 },
-		{ 3, 5, 2, 4 },
-		{ 3, 1, 5, 4 },
-		{ 3, 3, 3, 6 }
+	static const int ranks[7][7] = {
+		{ 5, 4, 4, 4, 4, 4, 4 }, // bool
+		{ 3, 5, 5, 2, 2, 4, 4 }, // min16int
+		{ 3, 5, 5, 2, 2, 4, 4 }, // int
+		{ 3, 1, 1, 5, 5, 4, 4 }, // min16uint
+		{ 3, 1, 1, 5, 5, 4, 4 }, // uint
+		{ 3, 3, 3, 3, 3, 6, 6 }, // min16float
+		{ 3, 3, 3, 3, 3, 6, 6 }  // float
 	};
 
-	assert(src.base > 0 && src.base <= 4);
-	assert(dst.base > 0 && dst.base <= 4);
+	assert(src.base > 0 && src.base <= 7); // bool - float
+	assert(dst.base > 0 && dst.base <= 7);
 
 	const int rank = ranks[src.base - 1][dst.base - 1] << 2;
 
@@ -123,7 +127,7 @@ unsigned int reshadefx::type::rank(const type &src, const type &dst)
 		return rank >> 1; // Scalar to vector promotion has a lower rank
 	if ((src.is_vector() && dst.is_scalar()) || (src.is_vector() == dst.is_vector() && src.rows > dst.rows && src.cols >= dst.cols))
 		return rank >> 2; // Vector to scalar conversion has an even lower rank
-	if ((src.is_vector() != dst.is_vector()) || src.is_matrix() != dst.is_matrix() || src.components() != dst.components())
+	if ((src.is_vector() != dst.is_vector()) ||  src.is_matrix() != dst.is_matrix() || src.components() != dst.components())
 		return 0; // If components weren't converted at this point, the types are not compatible
 
 	return rank * src.components(); // More components causes a higher rank
@@ -225,12 +229,12 @@ bool reshadefx::symbol_table::insert_symbol(const std::string &name, const symbo
 	return true;
 }
 
-reshadefx::symbol reshadefx::symbol_table::find_symbol(const std::string &name) const
+reshadefx::scoped_symbol reshadefx::symbol_table::find_symbol(const std::string &name) const
 {
 	// Default to start search with current scope and walk back the scope chain
 	return find_symbol(name, _current_scope, false);
 }
-reshadefx::symbol reshadefx::symbol_table::find_symbol(const std::string &name, const scope &scope, bool exclusive) const
+reshadefx::scoped_symbol reshadefx::symbol_table::find_symbol(const std::string &name, const scope &scope, bool exclusive) const
 {
 	const auto stack_it = _symbol_stack.find(name);
 
@@ -239,7 +243,7 @@ reshadefx::symbol reshadefx::symbol_table::find_symbol(const std::string &name, 
 		return {};
 
 	// Walk up the scope chain starting at the requested scope level and find a matching symbol
-	symbol result = {};
+	scoped_symbol result = {};
 
 	for (auto it = stack_it->second.rbegin(), end = stack_it->second.rend(); it != end; ++it)
 	{

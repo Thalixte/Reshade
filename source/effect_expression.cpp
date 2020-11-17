@@ -54,11 +54,20 @@ std::string reshadefx::type::description() const
 	case reshadefx::type::t_bool:
 		result = "bool";
 		break;
+	case reshadefx::type::t_min16int:
+		result = "min16int";
+		break;
 	case reshadefx::type::t_int:
 		result = "int";
 		break;
+	case reshadefx::type::t_min16uint:
+		result = "min16uint";
+		break;
 	case reshadefx::type::t_uint:
 		result = "uint";
+		break;
+	case reshadefx::type::t_min16float:
+		result = "min16float";
 		break;
 	case reshadefx::type::t_float:
 		result = "float";
@@ -104,6 +113,10 @@ void reshadefx::expression::reset_to_lvalue(const reshadefx::location &loc, uint
 	is_lvalue = true;
 	is_constant = false;
 	chain.clear();
+
+	// Make sure uniform l-values cannot be assigned to by making them constant
+	if (in_type.has(type::q_uniform))
+		type.qualifiers |= type::q_const;
 
 	// Strip away global variable qualifiers
 	type.qualifiers &= ~(reshadefx::type::q_extern | reshadefx::type::q_static | reshadefx::type::q_uniform | reshadefx::type::q_groupshared);

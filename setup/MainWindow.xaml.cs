@@ -143,7 +143,7 @@ namespace ReShade.Setup
 
 		void AddSearchPath(List<string> searchPaths, string newPath)
 		{
-			string basePath = Path.GetDirectoryName(ApiVulkan.IsChecked.Value ? commonPath : targetPath);
+			string basePath = Path.GetDirectoryName(configPath);
 			Directory.SetCurrentDirectory(basePath);
 
 			bool pathExists = false;
@@ -419,37 +419,40 @@ namespace ReShade.Setup
 
 			UpdateStatus("Working on " + targetName + " ...", "Installing ReShade ...");
 
-			string targetDir = Path.GetDirectoryName(targetPath);
+			var targetDir = Path.GetDirectoryName(targetPath);
+			var executableName = Path.GetFileName(targetPath);
+			if (compatibilityIni != null && compatibilityIni.HasValue(executableName, "InstallTarget"))
+			{
+				targetDir = Path.Combine(targetDir, compatibilityIni.GetString(executableName, "InstallTarget"));
+			}
+
 			configPath = Path.Combine(targetDir, "ReShade.ini");
 
 			if (ApiVulkan.IsChecked != true)
 			{
-				modulePath = null;
 				if (ApiD3D9.IsChecked == true)
 				{
 					modulePath = "d3d9.dll";
 				}
-				if (ApiDXGI.IsChecked == true)
+				else if (ApiDXGI.IsChecked == true)
 				{
 					modulePath = "dxgi.dll";
 				}
-				if (ApiOpenGL.IsChecked == true)
+				else if (ApiOpenGL.IsChecked == true)
 				{
 					modulePath = "opengl32.dll";
 				}
-
-				if (modulePath == null)
+				else // No API selected, abort immediately
 				{
-					// No API selected, abort immediately
 					return;
 				}
 
 				modulePath = Path.Combine(targetDir, modulePath);
 
-				var alternativeConfigPath = Path.ChangeExtension(modulePath, ".ini");
-				if (File.Exists(alternativeConfigPath))
+				var configPathAlt = Path.ChangeExtension(modulePath, ".ini");
+				if (File.Exists(configPathAlt))
 				{
-					configPath = alternativeConfigPath;
+					configPath = configPathAlt;
 				}
 
 				if (ReShadeExists(modulePath, out bool isReShade) && !isHeadless)
@@ -585,31 +588,69 @@ In that event here are some steps you can try to resolve this:
 				if (compatibilityIni.HasValue(targetName, "DepthCopyBeforeClears") ||
 					compatibilityIni.HasValue(targetName, "UseAspectRatioHeuristics"))
 				{
-					switch (compatibilityIni.GetString(targetName, "RenderApi"))
+					string renderApi = compatibilityIni.GetString(targetName, "RenderApi").ToUpper();
+					if (string.IsNullOrEmpty(renderApi) || renderApi == "DXGI")
 					{
-						case "D3D9":
-							config.SetValue("DX9_BUFFER_DETECTION", "PreserveDepthBuffer", compatibilityIni.GetString(targetName, "DepthCopyBeforeClears", "0"));
-							config.SetValue("DX9_BUFFER_DETECTION", "UseAspectRatioHeuristics", compatibilityIni.GetString(targetName, "UseAspectRatioHeuristics", "1"));
-							break;
-						case "D3D10":
-							config.SetValue("DX10_BUFFER_DETECTION", "DepthBufferRetrievalMode", compatibilityIni.GetString(targetName, "DepthCopyBeforeClears", "0"));
-							config.SetValue("DX10_BUFFER_DETECTION", "UseAspectRatioHeuristics", compatibilityIni.GetString(targetName, "UseAspectRatioHeuristics", "1"));
-							break;
-						case "D3D11":
-							config.SetValue("DX11_BUFFER_DETECTION", "DepthBufferRetrievalMode", compatibilityIni.GetString(targetName, "DepthCopyBeforeClears", "0"));
-							config.SetValue("DX11_BUFFER_DETECTION", "UseAspectRatioHeuristics", compatibilityIni.GetString(targetName, "UseAspectRatioHeuristics", "1"));
-							break;
-						case "D3D12":
-							config.SetValue("DX12_BUFFER_DETECTION", "DepthBufferRetrievalMode", compatibilityIni.GetString(targetName, "DepthCopyBeforeClears", "0"));
-							config.SetValue("DX12_BUFFER_DETECTION", "UseAspectRatioHeuristics", compatibilityIni.GetString(targetName, "UseAspectRatioHeuristics", "1"));
-							break;
-						case "Vulkan":
-							config.SetValue("VULKAN_BUFFER_DETECTION", "UseAspectRatioHeuristics", compatibilityIni.GetString(targetName, "UseAspectRatioHeuristics", "1"));
-							break;
+						renderApi = "D3D11"; // Default to D3D11
 					}
+
+					config.SetValue(renderApi, "DepthCopyBeforeClears", compatibilityIni.GetString(targetName, "DepthCopyBeforeClears", "0"));
+					config.SetValue(renderApi, "UseAspectRatioHeuristics", compatibilityIni.GetString(targetName, "UseAspectRatioHeuristics", "1"));
 				}
 
 				config.SaveFile();
+			}
+
+			// Update old configurations to new format
+			if (config.HasValue("INPUT", "KeyMenu") && !config.HasValue("INPUT", "KeyOverlay"))
+			{
+				config.SetValue("INPUT", "KeyOverlay", config.GetString("INPUT", "KeyMenu"));
+
+				config.SetValue("GENERAL", "PresetPath", config.GetString("GENERAL", "CurrentPresetPath"));
+
+				config.SetValue("OVERLAY", "ShowFPS", config.GetString("GENERAL", "ShowFPS"));
+				config.SetValue("OVERLAY", "ShowClock", config.GetString("GENERAL", "ShowClock"));
+				config.SetValue("OVERLAY", "ShowFrameTime", config.GetString("GENERAL", "ShowFrameTime"));
+				config.SetValue("OVERLAY", "ShowScreenshotMessage", config.GetString("GENERAL", "ShowScreenshotMessage"));
+				config.SetValue("OVERLAY", "FPSPosition", config.GetString("GENERAL", "FPSPosition"));
+				config.SetValue("OVERLAY", "ClockFormat", config.GetString("GENERAL", "ClockFormat"));
+				config.SetValue("OVERLAY", "NoFontScaling", config.GetString("GENERAL", "NoFontScaling"));
+				config.SetValue("OVERLAY", "SaveWindowState", config.GetString("GENERAL", "SaveWindowState"));
+				config.SetValue("OVERLAY", "TutorialProgress", config.GetString("GENERAL", "TutorialProgress"));
+				config.SetValue("OVERLAY", "VariableListHeight", config.GetString("GENERAL", "VariableUIHeight"));
+				config.SetValue("OVERLAY", "VariableListUseTabs", config.GetString("GENERAL", "NewVariableUI"));
+
+				config.SetValue("SCREENSHOTS", "FileFormat", config.GetString("GENERAL", "ScreenshotFormat"));
+				config.SetValue("SCREENSHOTS", "SaveBeforeShot", config.GetString("GENERAL", "ScreenshotSaveBefore"));
+				config.SetValue("SCREENSHOTS", "SaveOverlayShot", config.GetString("GENERAL", "ScreenshotSaveUI"));
+				config.SetValue("SCREENSHOTS", "SavePath", config.GetString("GENERAL", "ScreenshotPath"));
+				config.SetValue("SCREENSHOTS", "SavePresetFile", config.GetString("GENERAL", "ScreenshotIncludePreset"));
+
+				config.SetValue("D3D9", "DisableINTZ", config.GetString("DX9_BUFFER_DETECTION", "DisableINTZ"));
+				config.SetValue("D3D9", "DepthCopyBeforeClears", config.GetString("DX9_BUFFER_DETECTION", "PreserveDepthBuffer"));
+				config.SetValue("D3D9", "DepthCopyAtClearIndex", config.GetString("DX9_BUFFER_DETECTION", "PreserveDepthBufferIndex"));
+				config.SetValue("D3D9", "UseAspectRatioHeuristics", config.GetString("DX9_BUFFER_DETECTION", "UseAspectRatioHeuristics"));
+				config.SetValue("D3D10", "DepthCopyBeforeClears", config.GetString("DX10_BUFFER_DETECTION", "DepthBufferRetrievalMode"));
+				config.SetValue("D3D10", "DepthCopyAtClearIndex", config.GetString("DX10_BUFFER_DETECTION", "DepthBufferClearingNumber"));
+				config.SetValue("D3D10", "UseAspectRatioHeuristics", config.GetString("DX10_BUFFER_DETECTION", "UseAspectRatioHeuristics"));
+				config.SetValue("D3D11", "DepthCopyBeforeClears", config.GetString("DX11_BUFFER_DETECTION", "DepthBufferRetrievalMode"));
+				config.SetValue("D3D11", "DepthCopyAtClearIndex", config.GetString("DX11_BUFFER_DETECTION", "DepthBufferClearingNumber"));
+				config.SetValue("D3D11", "UseAspectRatioHeuristics", config.GetString("DX11_BUFFER_DETECTION", "UseAspectRatioHeuristics"));
+				config.SetValue("D3D12", "DepthCopyBeforeClears", config.GetString("DX12_BUFFER_DETECTION", "DepthBufferRetrievalMode"));
+				config.SetValue("D3D12", "DepthCopyAtClearIndex", config.GetString("DX12_BUFFER_DETECTION", "DepthBufferClearingNumber"));
+				config.SetValue("D3D12", "UseAspectRatioHeuristics", config.GetString("DX12_BUFFER_DETECTION", "UseAspectRatioHeuristics"));
+				config.SetValue("VULKAN", "UseAspectRatioHeuristics", config.GetString("VULKAN_BUFFER_DETECTION", "UseAspectRatioHeuristics"));
+
+				config.SaveFile();
+			}
+			if (config.HasValue("GENERAL", "CurrentPreset") && !config.HasValue("GENERAL", "PresetPath"))
+			{
+				if (config.GetValue("GENERAL", "PresetFiles", out string[] presetFiles) &&
+					int.TryParse(config.GetString("GENERAL", "CurrentPreset", "0"), out int presetIndex) && presetIndex < presetFiles.Length)
+				{
+					config.SetValue("GENERAL", "PresetPath", presetFiles[presetIndex]);
+					config.SaveFile();
+				}
 			}
 
 			// Only show the selection dialog if there are actually packages to choose
@@ -707,10 +748,11 @@ In that event here are some steps you can try to resolve this:
 				ZipFile.ExtractToDirectory(downloadPath, tempPath);
 
 				// First check for a standard directory name
+				string basePath = Path.GetDirectoryName(configPath);
 				string tempPathShaders = Directory.GetDirectories(tempPath, "Shaders", SearchOption.AllDirectories).FirstOrDefault();
 				string tempPathTextures = Directory.GetDirectories(tempPath, "Textures", SearchOption.AllDirectories).FirstOrDefault();
-				string targetPathShaders = Path.Combine(Path.GetDirectoryName(targetPath), package.InstallPath);
-				string targetPathTextures = Path.Combine(Path.GetDirectoryName(targetPath), package.TextureInstallPath);
+				string targetPathShaders = Path.Combine(basePath, package.InstallPath);
+				string targetPathTextures = Path.Combine(basePath, package.TextureInstallPath);
 
 				// If that does not exist, look for the first directory that contains shaders/textures
 				string[] effects = Directory.GetFiles(tempPath, "*.fx", SearchOption.AllDirectories);
@@ -725,7 +767,10 @@ In that event here are some steps you can try to resolve this:
 					foreach (string extension in tempTextureExtensions)
 					{
 						string path = Directory.GetFiles(tempPath, extension, SearchOption.AllDirectories).Select(x => Path.GetDirectoryName(x)).OrderBy(x => x.Length).FirstOrDefault();
-						tempPathTextures = tempPathTextures != null ? tempPathTextures.Union(path).ToString() : path;
+						if (!string.IsNullOrEmpty(path))
+						{
+							tempPathTextures = tempPathTextures != null ? tempPathTextures.Union(path).ToString() : path;
+						}
 					}
 				}
 
@@ -794,7 +839,7 @@ In that event here are some steps you can try to resolve this:
 			}
 			else
 			{
-				description = "You may now close this setup tool or click this button to edit additional settings.";
+				description = "You may now close this setup tool or click this button to edit additional settings.\nTo uninstall ReShade, launch this tool and select the game again. An option to uninstall will pop up then.";
 			}
 
 			UpdateStatusAndFinish(true, "Edit ReShade settings", description);
@@ -962,7 +1007,7 @@ In that event here are some steps you can try to resolve this:
 
 			try
 			{
-				string targetDir = Path.GetDirectoryName(targetPath);
+				string basePath = Path.GetDirectoryName(configPath);
 
 				File.Delete(modulePath);
 
@@ -976,9 +1021,9 @@ In that event here are some steps you can try to resolve this:
 					File.Delete(Path.ChangeExtension(modulePath, ".log"));
 				}
 
-				if (Directory.Exists(Path.Combine(targetDir, "reshade-shaders")))
+				if (Directory.Exists(Path.Combine(basePath, "reshade-shaders")))
 				{
-					Directory.Delete(Path.Combine(targetDir, "reshade-shaders"), true);
+					Directory.Delete(Path.Combine(basePath, "reshade-shaders"), true);
 				}
 
 				UpdateStatusAndFinish(true, "Successfully uninstalled.");

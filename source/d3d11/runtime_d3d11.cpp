@@ -47,8 +47,6 @@ namespace reshade::d3d11
 		com_ptr<ID3D11Query> timestamp_query_beg;
 		com_ptr<ID3D11Query> timestamp_query_end;
 		std::vector<com_ptr<ID3D11SamplerState>> sampler_states;
-		std::vector<com_ptr<ID3D11ShaderResourceView>> srv_bindings;
-		std::vector<com_ptr<ID3D11UnorderedAccessView>> uav_bindings;
 		std::vector<d3d11_pass_data> passes;
 	};
 }
@@ -80,24 +78,26 @@ reshade::d3d11::runtime_d3d11::runtime_d3d11(ID3D11Device *device, IDXGISwapChai
 		}
 	}
 
-#if RESHADE_GUI && RESHADE_DEPTH
-	subscribe_to_ui("DX11", [this]() {
+#if RESHADE_GUI
+	subscribe_to_ui("D3D11", [this]() {
+#if RESHADE_DEPTH
 		draw_depth_debug_menu(*_buffer_detection);
+#endif
 	});
 #endif
 #if RESHADE_DEPTH
 	subscribe_to_load_config([this](const ini_file &config) {
-		config.get("DX11_BUFFER_DETECTION", "DepthBufferRetrievalMode", _buffer_detection->preserve_depth_buffers);
-		config.get("DX11_BUFFER_DETECTION", "DepthBufferClearingNumber", _buffer_detection->depthstencil_clear_index.second);
-		config.get("DX11_BUFFER_DETECTION", "UseAspectRatioHeuristics", _filter_aspect_ratio);
+		config.get("D3D11", "DepthCopyBeforeClears", _buffer_detection->preserve_depth_buffers);
+		config.get("D3D11", "DepthCopyAtClearIndex", _buffer_detection->depthstencil_clear_index.second);
+		config.get("D3D11", "UseAspectRatioHeuristics", _filter_aspect_ratio);
 
 		if (_buffer_detection->depthstencil_clear_index.second == std::numeric_limits<UINT>::max())
 			_buffer_detection->depthstencil_clear_index.second  = 0;
 	});
 	subscribe_to_save_config([this](ini_file &config) {
-		config.set("DX11_BUFFER_DETECTION", "DepthBufferRetrievalMode", _buffer_detection->preserve_depth_buffers);
-		config.set("DX11_BUFFER_DETECTION", "DepthBufferClearingNumber", _buffer_detection->depthstencil_clear_index.second);
-		config.set("DX11_BUFFER_DETECTION", "UseAspectRatioHeuristics", _filter_aspect_ratio);
+		config.set("D3D11", "DepthCopyBeforeClears", _buffer_detection->preserve_depth_buffers);
+		config.set("D3D11", "DepthCopyAtClearIndex", _buffer_detection->depthstencil_clear_index.second);
+		config.set("D3D11", "UseAspectRatioHeuristics", _filter_aspect_ratio);
 	});
 #endif
 }
@@ -344,6 +344,12 @@ void reshade::d3d11::runtime_d3d11::on_present()
 
 bool reshade::d3d11::runtime_d3d11::capture_screenshot(uint8_t *buffer) const
 {
+	if (_color_bit_depth != 8 && _color_bit_depth != 10)
+	{
+		LOG(ERROR) << "Screenshots are not supported for back buffer format " << _backbuffer_format << '.';
+		return false;
+	}
+
 	// Create a texture in system memory, copy back buffer data into it and map it for reading
 	D3D11_TEXTURE2D_DESC desc = {};
 	desc.Width = _width;
@@ -427,9 +433,9 @@ bool reshade::d3d11::runtime_d3d11::init_effect(size_t index)
 	// Compile the generated HLSL source code to DX byte code
 	for (const reshadefx::entry_point &entry_point : effect.module.entry_points)
 	{
-		std::string profile;
-		com_ptr<ID3DBlob> d3d_compiled, d3d_errors;
+		HRESULT hr = E_FAIL;
 
+		std::string profile;
 		switch (entry_point.type)
 		{
 		case reshadefx::shader_type::vs:
@@ -473,35 +479,54 @@ bool reshade::d3d11::runtime_d3d11::init_effect(size_t index)
 			break;
 		}
 
-		HRESULT hr = D3DCompile(
-			hlsl.c_str(), hlsl.size(),
-			nullptr, nullptr, nullptr,
-			entry_point.name.c_str(),
-			profile.c_str(),
-			D3DCOMPILE_ENABLE_STRICTNESS | (_performance_mode ? D3DCOMPILE_OPTIMIZATION_LEVEL3 : D3DCOMPILE_OPTIMIZATION_LEVEL1), 0,
-			&d3d_compiled, &d3d_errors);
+		std::string attributes;
+		attributes += "func=D3DCompile;";
+		attributes += "name=(null);defines=(null);include=(null);";
+		attributes += "entrypoint=" + entry_point.name + ';';
+		attributes += "profile=" + profile + ';';
+		attributes += "compile=" + std::to_string(D3DCOMPILE_ENABLE_STRICTNESS | (_performance_mode ? D3DCOMPILE_OPTIMIZATION_LEVEL3 : D3DCOMPILE_OPTIMIZATION_LEVEL1)) + ';';
+		attributes += "effect=0;";
 
-		if (d3d_errors != nullptr) // Append warnings to the output error string as well
-			effect.errors.append(static_cast<const char *>(d3d_errors->GetBufferPointer()), d3d_errors->GetBufferSize() - 1); // Subtracting one to not append the null-terminator as well
+		const size_t hash = std::hash<std::string_view>()(attributes) ^ std::hash<std::string_view>()(hlsl);
+		std::vector<char> cso;
+		if (!load_effect_cache(effect.source_file, entry_point.name, hash, cso, effect.assembly[entry_point.name]))
+		{
+			com_ptr<ID3DBlob> d3d_compiled, d3d_errors;
+			hr = D3DCompile(
+				hlsl.data(), hlsl.size(),
+				nullptr, nullptr, nullptr,
+				entry_point.name.c_str(),
+				profile.c_str(),
+				D3DCOMPILE_ENABLE_STRICTNESS | (_performance_mode ? D3DCOMPILE_OPTIMIZATION_LEVEL3 : D3DCOMPILE_OPTIMIZATION_LEVEL1), 0,
+				&d3d_compiled, &d3d_errors);
 
-		// No need to setup resources if any of the shaders failed to compile
-		if (FAILED(hr))
-			return false;
+			if (d3d_errors != nullptr) // Append warnings to the output error string as well
+				effect.errors.append(static_cast<const char *>(d3d_errors->GetBufferPointer()), d3d_errors->GetBufferSize() - 1); // Subtracting one to not append the null-terminator as well
 
-		if (com_ptr<ID3DBlob> d3d_disassembled; SUCCEEDED(D3DDisassemble(d3d_compiled->GetBufferPointer(), d3d_compiled->GetBufferSize(), 0, nullptr, &d3d_disassembled)))
-			effect.assembly[entry_point.name] = std::string(static_cast<const char *>(d3d_disassembled->GetBufferPointer()));
+			// No need to setup resources if any of the shaders failed to compile
+			if (FAILED(hr))
+				return false;
+
+			cso.resize(d3d_compiled->GetBufferSize());
+			std::memcpy(cso.data(), d3d_compiled->GetBufferPointer(), cso.size());
+
+			if (com_ptr<ID3DBlob> d3d_disassembled; SUCCEEDED(D3DDisassemble(cso.data(), cso.size(), 0, nullptr, &d3d_disassembled)))
+				effect.assembly[entry_point.name].assign(static_cast<const char *>(d3d_disassembled->GetBufferPointer()), d3d_disassembled->GetBufferSize() - 1);
+
+			save_effect_cache(effect.source_file, entry_point.name, hash, cso, effect.assembly[entry_point.name]);
+		}
 
 		// Create runtime shader objects from the compiled DX byte code
 		switch (entry_point.type)
 		{
 		case reshadefx::shader_type::vs:
-			hr = _device->CreateVertexShader(d3d_compiled->GetBufferPointer(), d3d_compiled->GetBufferSize(), nullptr, reinterpret_cast<ID3D11VertexShader **>(&entry_points[entry_point.name]));
+			hr = _device->CreateVertexShader(cso.data(), cso.size(), nullptr, reinterpret_cast<ID3D11VertexShader **>(&entry_points[entry_point.name]));
 			break;
 		case reshadefx::shader_type::ps:
-			hr = _device->CreatePixelShader(d3d_compiled->GetBufferPointer(), d3d_compiled->GetBufferSize(), nullptr, reinterpret_cast<ID3D11PixelShader **>(&entry_points[entry_point.name]));
+			hr = _device->CreatePixelShader(cso.data(), cso.size(), nullptr, reinterpret_cast<ID3D11PixelShader **>(&entry_points[entry_point.name]));
 			break;
 		case reshadefx::shader_type::cs:
-			hr = _device->CreateComputeShader(d3d_compiled->GetBufferPointer(), d3d_compiled->GetBufferSize(), nullptr, reinterpret_cast<ID3D11ComputeShader **>(&entry_points[entry_point.name]));
+			hr = _device->CreateComputeShader(cso.data(), cso.size(), nullptr, reinterpret_cast<ID3D11ComputeShader **>(&entry_points[entry_point.name]));
 			break;
 		}
 
@@ -535,10 +560,7 @@ bool reshade::d3d11::runtime_d3d11::init_effect(size_t index)
 		_renderer_id >= D3D_FEATURE_LEVEL_10_0 ? D3D11_CS_4_X_UAV_REGISTER_COUNT : 0;
 
 	d3d11_technique_data technique_init;
-	technique_init.srv_bindings.resize(effect.module.num_texture_bindings);
 	technique_init.sampler_states.resize(effect.module.num_sampler_bindings);
-	technique_init.uav_bindings.resize(std::min(effect.module.num_storage_bindings, max_uav_bindings));
-
 	for (const reshadefx::sampler_info &info : effect.module.samplers)
 	{
 		if (info.binding >= D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT)
@@ -546,16 +568,6 @@ bool reshade::d3d11::runtime_d3d11::init_effect(size_t index)
 			LOG(ERROR) << "Cannot bind sampler '" << info.unique_name << "' since it exceeds the maximum number of allowed sampler slots in " << "D3D11" << " (" << info.binding << ", allowed are up to " << D3D11_COMMONSHADER_SAMPLER_SLOT_COUNT << ").";
 			return false;
 		}
-		if (info.texture_binding >= D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT)
-		{
-			LOG(ERROR) << "Cannot bind texture '" << info.texture_name << "' since it exceeds the maximum number of allowed resource slots in " << "D3D11" << " (" << info.texture_binding << ", allowed are up to " << D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT << ").";
-			return false;
-		}
-
-		const texture &texture = look_up_texture_by_name(info.texture_name);
-
-		technique_init.srv_bindings[info.texture_binding] =
-			static_cast<d3d11_tex_data *>(texture.impl)->srv[info.srgb ? 1 : 0];
 
 		if (technique_init.sampler_states[info.binding] == nullptr)
 		{
@@ -594,20 +606,6 @@ bool reshade::d3d11::runtime_d3d11::init_effect(size_t index)
 		}
 	}
 
-	for (const reshadefx::storage_info &info : effect.module.storages)
-	{
-		if (info.binding >= max_uav_bindings)
-		{
-			LOG(ERROR) << "Cannot bind storage '" << info.unique_name << "' since it exceeds the maximum number of allowed resource slots in " << "D3D11" << " (" << info.binding << ", allowed are up to " << max_uav_bindings << ").";
-			return false;
-		}
-
-		const texture &texture = look_up_texture_by_name(info.texture_name);
-
-		technique_init.uav_bindings[info.binding] =
-			static_cast<d3d11_tex_data *>(texture.impl)->uav;
-	}
-
 	for (technique &technique : _techniques)
 	{
 		if (technique.impl != nullptr || technique.effect_index != index)
@@ -633,46 +631,13 @@ bool reshade::d3d11::runtime_d3d11::init_effect(size_t index)
 			if (!pass_info.cs_entry_point.empty())
 			{
 				entry_points.at(pass_info.cs_entry_point)->QueryInterface(&pass_data.compute_shader);
-
-				for (const reshadefx::storage_info &info : effect.module.storages)
-				{
-					const texture &texture = look_up_texture_by_name(info.texture_name);
-
-					pass_data.modified_resources.push_back(static_cast<d3d11_tex_data *>(texture.impl)->srv[0]);
-				}
-
-				pass_data.srvs = impl->srv_bindings;
-				pass_data.uavs = impl->uav_bindings;
-
-				// Unbind any shader resources that are also bound as UAV
-				for (com_ptr<ID3D11ShaderResourceView> &srv : pass_data.srvs)
-				{
-					if (srv == nullptr)
-						continue;
-					com_ptr<ID3D11Resource> srv_res;
-					srv->GetResource(&srv_res);
-
-					for (const com_ptr<ID3D11UnorderedAccessView> &uav : pass_data.uavs)
-					{
-						if (uav == nullptr)
-							continue;
-						com_ptr<ID3D11Resource> uav_res;
-						uav->GetResource(&uav_res);
-
-						if (srv_res == uav_res)
-						{
-							srv.reset();
-							break;
-						}
-					}
-				}
 			}
 			else
 			{
 				entry_points.at(pass_info.ps_entry_point)->QueryInterface(&pass_data.pixel_shader);
 				entry_points.at(pass_info.vs_entry_point)->QueryInterface(&pass_data.vertex_shader);
 
-				const int target_index = pass_info.srgb_write_enable ? 1 : 0;
+				const int srgb_index = pass_info.srgb_write_enable ? 1 : 0;
 
 				for (UINT k = 0; k < 8 && !pass_info.render_target_names[k].empty(); ++k)
 				{
@@ -689,9 +654,9 @@ bool reshade::d3d11::runtime_d3d11::init_effect(size_t index)
 					rtv_desc.ViewDimension = desc.SampleDesc.Count > 1 ? D3D11_RTV_DIMENSION_TEXTURE2DMS : D3D11_RTV_DIMENSION_TEXTURE2D;
 
 					// Create render target view for texture on demand when it is first used
-					if (tex_impl->rtv[target_index] == nullptr)
+					if (tex_impl->rtv[srgb_index] == nullptr)
 					{
-						if (HRESULT hr = _device->CreateRenderTargetView(tex_impl->texture.get(), &rtv_desc, &tex_impl->rtv[target_index]); FAILED(hr))
+						if (HRESULT hr = _device->CreateRenderTargetView(tex_impl->texture.get(), &rtv_desc, &tex_impl->rtv[srgb_index]); FAILED(hr))
 						{
 							LOG(ERROR) << "Failed to create render target view for texture '" << pass_info.render_target_names[k] << "'! HRESULT is " << hr << '.';
 							LOG(DEBUG) << "> Details: Format = " << rtv_desc.Format << ", ViewDimension = " << rtv_desc.ViewDimension;
@@ -699,17 +664,16 @@ bool reshade::d3d11::runtime_d3d11::init_effect(size_t index)
 						}
 					}
 
-					pass_data.render_targets[k] = tex_impl->rtv[target_index];
-					pass_data.modified_resources.push_back(tex_impl->srv[target_index]);
+					pass_data.render_targets[k] = tex_impl->rtv[srgb_index];
+					pass_data.modified_resources.push_back(tex_impl->srv[srgb_index]);
 				}
 
 				if (pass_info.render_target_names[0].empty())
 				{
-					pass_data.render_targets[0] = _backbuffer_rtv[target_index];
-					pass_data.modified_resources.push_back(_backbuffer_texture_srv[target_index]);
-
 					pass_info.viewport_width = _width;
 					pass_info.viewport_height = _height;
+					pass_data.render_targets[0] = _backbuffer_rtv[srgb_index];
+					pass_data.modified_resources.push_back(_backbuffer_texture_srv[srgb_index]);
 				}
 
 				{   D3D11_BLEND_DESC desc = {};
@@ -810,30 +774,37 @@ bool reshade::d3d11::runtime_d3d11::init_effect(size_t index)
 						return false;
 					}
 				}
+			}
 
-				// Unbind any shader resources that are also bound as render target
-				pass_data.srvs = impl->srv_bindings;
-				for (com_ptr<ID3D11ShaderResourceView> &srv : pass_data.srvs)
+			pass_data.srvs.resize(effect.module.num_texture_bindings);
+			for (const reshadefx::sampler_info &info : pass_info.samplers)
+			{
+				if (info.texture_binding >= D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT)
 				{
-					if (srv == nullptr)
-						continue;
-					com_ptr<ID3D11Resource> srv_res;
-					srv->GetResource(&srv_res);
-
-					for (const com_ptr<ID3D11RenderTargetView> &rtv : pass_data.render_targets)
-					{
-						if (rtv == nullptr)
-							continue;
-						com_ptr<ID3D11Resource> rtv_res;
-						rtv->GetResource(&rtv_res);
-
-						if (srv_res == rtv_res)
-						{
-							srv.reset();
-							break;
-						}
-					}
+					LOG(ERROR) << "Cannot bind texture '" << info.texture_name << "' since it exceeds the maximum number of allowed resource slots in " << "D3D11" << " (" << info.texture_binding << ", allowed are up to " << D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT << ").";
+					return false;
 				}
+
+				d3d11_tex_data *const tex_impl = static_cast<d3d11_tex_data *>(
+					look_up_texture_by_name(info.texture_name).impl);
+
+				pass_data.srvs[info.texture_binding] = tex_impl->srv[info.srgb ? 1 : 0];
+			}
+
+			pass_data.uavs.resize(std::min(effect.module.num_storage_bindings, max_uav_bindings));
+			for (const reshadefx::storage_info &info : pass_info.storages)
+			{
+				if (info.binding >= max_uav_bindings)
+				{
+					LOG(ERROR) << "Cannot bind storage '" << info.unique_name << "' since it exceeds the maximum number of allowed resource slots in " << "D3D11" << " (" << info.binding << ", allowed are up to " << max_uav_bindings << ").";
+					return false;
+				}
+
+				d3d11_tex_data *const tex_impl = static_cast<d3d11_tex_data *>(
+					look_up_texture_by_name(info.texture_name).impl);
+
+				pass_data.uavs[info.binding] = tex_impl->uav;
+				pass_data.modified_resources.push_back(tex_impl->srv[0]);
 			}
 		}
 	}
@@ -875,13 +846,14 @@ bool reshade::d3d11::runtime_d3d11::init_texture(texture &texture)
 	auto impl = new d3d11_tex_data();
 	texture.impl = impl;
 
-	switch (texture.impl_reference)
+	if (texture.semantic == "COLOR")
 	{
-	case texture_reference::back_buffer:
 		impl->srv[0] = _backbuffer_texture_srv[0];
 		impl->srv[1] = _backbuffer_texture_srv[1];
 		return true;
-	case texture_reference::depth_buffer:
+	}
+	if (texture.semantic == "DEPTH")
+	{
 #if RESHADE_DEPTH
 		impl->srv[0] = _depth_texture_srv;
 		impl->srv[1] = _depth_texture_srv;
@@ -1009,7 +981,7 @@ bool reshade::d3d11::runtime_d3d11::init_texture(texture &texture)
 void reshade::d3d11::runtime_d3d11::upload_texture(const texture &texture, const uint8_t *pixels)
 {
 	auto impl = static_cast<d3d11_tex_data *>(texture.impl);
-	assert(impl != nullptr && texture.impl_reference == texture_reference::none && pixels != nullptr);
+	assert(impl != nullptr && texture.semantic.empty() && pixels != nullptr);
 
 	unsigned int upload_pitch;
 	std::vector<uint8_t> upload_data;
@@ -1129,7 +1101,7 @@ void reshade::d3d11::runtime_d3d11::render_technique(technique &technique)
 			_immediate_context->CSSetShaderResources(0, static_cast<UINT>(pass_data.srvs.size()), reinterpret_cast<ID3D11ShaderResourceView *const *>(pass_data.srvs.data()));
 			_immediate_context->CSSetUnorderedAccessViews(0, static_cast<UINT>(pass_data.uavs.size()), reinterpret_cast<ID3D11UnorderedAccessView *const *>(pass_data.uavs.data()), nullptr);
 
-			_immediate_context->Dispatch(pass_info.viewport_width, pass_info.viewport_height, 1);
+			_immediate_context->Dispatch(pass_info.viewport_width, pass_info.viewport_height, pass_info.viewport_dispatch_z);
 
 			// Reset shader resources
 			ID3D11ShaderResourceView *null_srv[D3D11_COMMONSHADER_INPUT_RESOURCE_SLOT_COUNT] = { nullptr };
@@ -1476,10 +1448,16 @@ void reshade::d3d11::runtime_d3d11::draw_depth_debug_menu(buffer_detection_conte
 	ImGui::Separator();
 	ImGui::Spacing();
 
+	// Sort pointer list so that added/removed items do not change the UI much
+	std::vector<std::pair<ID3D11Texture2D *, buffer_detection::depthstencil_info>> sorted_buffers;
+	sorted_buffers.reserve(tracker.depth_buffer_counters().size());
 	for (const auto &[dsv_texture, snapshot] : tracker.depth_buffer_counters())
+		sorted_buffers.push_back({ dsv_texture.get(), snapshot });
+	std::sort(sorted_buffers.begin(), sorted_buffers.end(), [](const auto &a, const auto &b) { return a.first < b.first; });
+	for (const auto &[dsv_texture, snapshot] : sorted_buffers)
 	{
 		char label[512] = "";
-		sprintf_s(label, "%s0x%p", (dsv_texture == tracker.depthstencil_clear_index.first ? "> " : "  "), dsv_texture.get());
+		sprintf_s(label, "%s0x%p", (dsv_texture == tracker.depthstencil_clear_index.first ? "> " : "  "), dsv_texture);
 
 		D3D11_TEXTURE2D_DESC desc;
 		dsv_texture->GetDesc(&desc);
@@ -1493,7 +1471,7 @@ void reshade::d3d11::runtime_d3d11::draw_depth_debug_menu(buffer_detection_conte
 
 		if (bool value = (_depth_texture_override == dsv_texture);
 			ImGui::Checkbox(label, &value))
-			_depth_texture_override = value ? dsv_texture.get() : nullptr;
+			_depth_texture_override = value ? dsv_texture : nullptr;
 
 		ImGui::SameLine();
 		ImGui::Text("| %4ux%-4u | %5u draw calls ==> %8u vertices |%s",
@@ -1514,7 +1492,7 @@ void reshade::d3d11::runtime_d3d11::draw_depth_debug_menu(buffer_detection_conte
 
 				ImGui::SameLine();
 				ImGui::Text("%*s|           | %5u draw calls ==> %8u vertices |%s",
-					sizeof(dsv_texture.get()) == 8 ? 8 : 0, "", // Add space to fill pointer length
+					sizeof(dsv_texture) == 8 ? 8 : 0, "", // Add space to fill pointer length
 					snapshot.clears[clear_index - 1].drawcalls, snapshot.clears[clear_index - 1].vertices,
 					snapshot.clears[clear_index - 1].rect ? " RECT" : "");
 			}
@@ -1571,8 +1549,7 @@ void reshade::d3d11::runtime_d3d11::update_depth_texture_bindings(com_ptr<ID3D11
 	// Update all references to the new texture
 	for (const texture &tex : _textures)
 	{
-		if (tex.impl == nullptr ||
-			tex.impl_reference != texture_reference::depth_buffer)
+		if (tex.impl == nullptr || tex.semantic != "DEPTH")
 			continue;
 		const auto tex_impl = static_cast<d3d11_tex_data *>(tex.impl);
 

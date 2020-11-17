@@ -17,6 +17,7 @@ DECLARE_HANDLE(HPBUFFERARB);
 
 static std::mutex s_mutex;
 static std::unordered_set<HDC> s_pbuffer_device_contexts;
+static std::unordered_set<HGLRC> s_legacy_contexts;
 static std::unordered_map<HGLRC, HGLRC> s_shared_contexts;
 static std::unordered_map<HGLRC, reshade::opengl::runtime_gl *> s_opengl_runtimes;
 thread_local reshade::opengl::runtime_gl *g_current_runtime = nullptr;
@@ -335,7 +336,18 @@ HOOK_EXPORT HGLRC WINAPI wglCreateContext(HDC hdc)
 	LOG(INFO) << "Redirecting " << "wglCreateContext" << '(' << "hdc = " << hdc << ')' << " ...";
 	LOG(INFO) << "> Passing on to " << "wglCreateLayerContext" << ':';
 
-	return wglCreateLayerContext(hdc, 0);
+	const HGLRC hglrc = wglCreateLayerContext(hdc, 0);
+	if (hglrc == nullptr)
+	{
+		return nullptr;
+	}
+
+	// Keep track of legacy contexts here instead of in 'wglCreateLayerContext' because some drivers call the latter from within their 'wglCreateContextAttribsARB' implementation
+	{ const std::lock_guard<std::mutex> lock(s_mutex);
+		s_legacy_contexts.emplace(hglrc);
+	}
+
+	return hglrc;
 }
 			HGLRC WINAPI wglCreateContextAttribsARB(HDC hdc, HGLRC hShareContext, const int *piAttribList)
 {
@@ -361,7 +373,7 @@ HOOK_EXPORT HGLRC WINAPI wglCreateContext(HDC hdc)
 	};
 
 	int i = 0, major = 1, minor = 0, flags = 0;
-	bool core = true, compatibility = false;
+	bool compatibility = false;
 	attribute attribs[8] = {};
 
 	for (const int *attrib = piAttribList; attrib != nullptr && *attrib != 0 && i < 5; attrib += 2, ++i)
@@ -381,14 +393,13 @@ HOOK_EXPORT HGLRC WINAPI wglCreateContext(HDC hdc)
 			flags = attrib[1];
 			break;
 		case attribute::WGL_CONTEXT_PROFILE_MASK_ARB:
-			core = (attrib[1] & attribute::WGL_CONTEXT_CORE_PROFILE_BIT_ARB) != 0;
 			compatibility = (attrib[1] & attribute::WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB) != 0;
 			break;
 		}
 	}
 
-	if (major < 3 || minor < 2)
-		core = compatibility = false;
+	if (major < 3 || (major == 3 && minor < 2))
+		compatibility = true;
 
 #ifndef NDEBUG
 	flags |= attribute::WGL_CONTEXT_DEBUG_BIT_ARB;
@@ -400,12 +411,12 @@ HOOK_EXPORT HGLRC WINAPI wglCreateContext(HDC hdc)
 	attribs[i].name = attribute::WGL_CONTEXT_PROFILE_MASK_ARB;
 	attribs[i++].value = compatibility ? attribute::WGL_CONTEXT_COMPATIBILITY_PROFILE_BIT_ARB : attribute::WGL_CONTEXT_CORE_PROFILE_BIT_ARB;
 
-	LOG(INFO) << "> Requesting " << (core ? "core " : compatibility ? "compatibility " : "") << "OpenGL context for version " << major << '.' << minor << " ...";
+	LOG(INFO) << "> Requesting " << (compatibility ? "compatibility" : "core") << " OpenGL context for version " << major << '.' << minor << " ...";
 
-	if (major < 4 || minor < 3)
+	if (major < 4 || (major == 4 && minor < 3))
 	{
 		LOG(INFO) << "> Replacing requested version with 4.3 ...";
-
+	
 		for (int k = 0; k < i; ++k)
 		{
 			switch (attribs[k].name)
@@ -544,6 +555,8 @@ HOOK_EXPORT BOOL  WINAPI wglDeleteContext(HGLRC hglrc)
 	}
 
 	{ const std::lock_guard<std::mutex> lock(s_mutex);
+		s_legacy_contexts.erase(hglrc);
+
 		for (auto it = s_shared_contexts.begin(); it != s_shared_contexts.end();)
 		{
 			if (it->first == hglrc)
@@ -674,6 +687,11 @@ HOOK_EXPORT BOOL  WINAPI wglMakeCurrent(HDC hdc, HGLRC hglrc)
 		{
 			const auto runtime = new reshade::opengl::runtime_gl();
 			runtime->_hdcs.insert(hdc);
+
+			// Always set compatibility context flag on contexts that were created with 'wglCreateContext' instead of 'wglCreateContextAttribsARB'
+			// This is necessary because with some pixel formats the 'GL_ARB_compatibility' extension is not exposed even though the context was not created with the core profile
+			if (s_legacy_contexts.find(hglrc) != s_legacy_contexts.end())
+				runtime->_compatibility_context = true;
 
 			g_current_runtime = s_opengl_runtimes[hglrc] = runtime;
 

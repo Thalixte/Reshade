@@ -7,18 +7,19 @@
 
 #include <vector>
 #include <string>
-#include <cassert>
 #include <filesystem>
 #include <unordered_map>
 
-extern std::filesystem::path g_reshade_config_path;
+extern std::filesystem::path g_reshade_dll_path;
+extern std::filesystem::path g_reshade_base_path;
+extern std::filesystem::path g_target_executable_path;
 
-inline void trim(std::string &str, const char *chars = " \t")
+inline void trim(std::string &str, const char chars[] = " \t")
 {
 	str.erase(0, str.find_first_not_of(chars));
 	str.erase(str.find_last_not_of(chars) + 1);
 }
-inline std::string trim(const std::string &str, const char *chars = " \t")
+inline std::string trim(const std::string &str, const char chars[] = " \t")
 {
 	std::string res(str);
 	trim(res, chars);
@@ -37,6 +38,14 @@ namespace reshade
 		explicit ini_file(const std::filesystem::path &path);
 		~ini_file();
 
+		/// <summary>
+		/// Gets the path to this INI file.
+		/// </summary>
+		const std::filesystem::path &path() const { return _path; }
+
+		/// <summary>
+		/// Checks whether the specified <paramref name="section"/> and <paramref name="key"/> currently exist in the INI.
+		/// </summary>
 		bool has(const std::string &section, const std::string &key) const
 		{
 			const auto it1 = _sections.find(section);
@@ -48,6 +57,11 @@ namespace reshade
 			return true;
 		}
 
+		/// <summary>
+		/// Gets the value of the specified <paramref name="section"/> and <paramref name="key"/> from the INI.
+		/// </summary>
+		/// <param name="value">A reference filled with the data of this INI entry.</param>
+		/// <returns><c>true</c> if the key exists, <c>false</c>otherwise.</returns>
 		template <typename T>
 		bool get(const std::string &section, const std::string &key, T &value) const
 		{
@@ -88,6 +102,20 @@ namespace reshade
 			return true;
 		}
 
+		/// <summary>
+		/// Returns <c>true</c> only if the specified <paramref name="section"/> and <paramref name="key"/> exists and is not zero.
+		/// </summary>
+		/// <returns><c>true</c> if the key exists and is not zero, <c>false</c>otherwise.</returns>
+		bool get(const std::string &section, const std::string &key) const
+		{
+			bool value = false;
+			return get<bool>(section, key, value) && value;
+		}
+
+		/// <summary>
+		/// Sets the value of the specified <paramref name="section"/> and <paramref name="key"/> to a new <paramref name="value"/>.
+		/// </summary>
+		/// <param name="value">The data to set this INI entry to.</param>
 		template <typename T>
 		void set(const std::string &section, const std::string &key, const T &value)
 		{
@@ -122,8 +150,6 @@ namespace reshade
 		template <typename T, size_t SIZE>
 		void set(const std::string &section, const std::string &key, const T(&values)[SIZE], const size_t size = SIZE)
 		{
-			assert(size <= SIZE);
-
 			auto &v = _sections[section][key];
 			v.resize(size);
 			for (size_t i = 0; i < size; ++i)
@@ -244,4 +270,9 @@ namespace reshade
 		std::filesystem::file_time_type _modified_at;
 		std::unordered_map<std::string, section> _sections;
 	};
+
+	/// <summary>
+	/// Global configuration that can be used for general settings that are not specific to a runtime instance.
+	/// </summary>
+	ini_file &global_config();
 }

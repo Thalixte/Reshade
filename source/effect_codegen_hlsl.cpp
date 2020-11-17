@@ -73,6 +73,8 @@ private:
 	{
 		if constexpr (is_decl)
 		{
+			if (type.has(type::q_static))
+				s += "static ";
 			if (type.has(type::q_precise))
 				s += "precise ";
 			if (type.has(type::q_groupshared))
@@ -106,12 +108,23 @@ private:
 		case type::t_bool:
 			s += "bool";
 			break;
+		case type::t_min16int:
+			// Minimum precision types are only supported in shader model 4 and up
+			// Real 16-bit types were added in shader model 6.2
+			s += _shader_model >= 62 ? "int16_t" : _shader_model >= 40 ? "min16int" : "int";
+			break;
 		case type::t_int:
 			s += "int";
+			break;
+		case type::t_min16uint:
+			s += _shader_model >= 62 ? "uint16_t" : _shader_model >= 40 ? "min16uint" : "int";
 			break;
 		case type::t_uint:
 			// In shader model 3, uints can only be used with known-positive values, so use ints instead
 			s += _shader_model >= 40 ? "uint" : "int";
+			break;
+		case type::t_min16float:
+			s += _shader_model >= 62 ? "float16_t" : _shader_model >= 40 ? "min16float" : "float";
 			break;
 		case type::t_float:
 			s += "float";
@@ -157,6 +170,7 @@ private:
 
 		if (type.is_struct())
 		{
+			// The can only be zero initializer struct constants
 			assert(data.as_uint[0] == 0);
 
 			s += '(' + id_to_name(type.definition) + ")0";
@@ -176,12 +190,15 @@ private:
 			case type::t_bool:
 				s += data.as_uint[i] ? "true" : "false";
 				break;
+			case type::t_min16int:
 			case type::t_int:
 				s += std::to_string(data.as_int[i]);
 				break;
+			case type::t_min16uint:
 			case type::t_uint:
 				s += std::to_string(data.as_uint[i]);
 				break;
+			case type::t_min16float:
 			case type::t_float:
 				if (std::isnan(data.as_float[i])) {
 					s += "-1.#IND";
@@ -195,6 +212,8 @@ private:
 				std::snprintf(temp, sizeof(temp), "%1.8e", data.as_float[i]);
 				s += temp;
 				break;
+			default:
+				assert(false);
 			}
 
 			if (i < components - 1)
@@ -254,6 +273,8 @@ private:
 		{
 			if (semantic == "SV_POSITION")
 				return "POSITION"; // For pixel shaders this has to be "VPOS", so need to redefine that in post
+			if (semantic == "SV_POINTSIZE")
+				return "PSIZE";
 			if (semantic.compare(0, 9, "SV_TARGET") == 0)
 				return "COLOR" + semantic.substr(9);
 			if (semantic == "SV_DEPTH")
@@ -548,6 +569,7 @@ private:
 	id   define_function(const location &loc, function_info &info) override
 	{
 		info.definition = make_id();
+
 		define_name<naming::unique>(info.definition, info.unique_name);
 
 		std::string &code = _blocks.at(_current_block);
@@ -592,11 +614,14 @@ private:
 		return info.definition;
 	}
 
-	void define_entry_point(function_info &func, shader_type stype, int num_threads[2]) override
+	void define_entry_point(function_info &func, shader_type stype, int num_threads[3]) override
 	{
 		// Modify entry point name since a new function is created for it below
 		if (stype == shader_type::cs)
-			func.unique_name = 'E' + func.unique_name + '_' + std::to_string(num_threads[0]) + '_' + std::to_string(num_threads[1]);
+			func.unique_name = 'E' + func.unique_name +
+				'_' + std::to_string(num_threads[0]) +
+				'_' + std::to_string(num_threads[1]) +
+				'_' + std::to_string(num_threads[2]);
 		else if (_shader_model < 40)
 			func.unique_name = 'E' + func.unique_name;
 
@@ -670,7 +695,7 @@ private:
 			_blocks.at(_current_block) += "[numthreads(" +
 				std::to_string(num_threads[0]) + ", " +
 				std::to_string(num_threads[1]) + ", " +
-				"1)]\n";
+				std::to_string(num_threads[2]) + ")]\n";
 
 		define_function({}, entry_point);
 		enter_block(create_block());
@@ -1298,9 +1323,9 @@ private:
 
 			code += "while (" + condition_name + ")\n\t{\n\t\t";
 
-			// Work around D3DCompiler bug (only in SM3) that causes it to forget to initialize the loop count register, so that loops are not executed at all
-			// Only applies to dynamic loops, where it generates a loop instruction like "rep i0", but never sets the "i0" register via "defi i0, ..."
-			// Moving the loop condition into the loop body fixes that, but therefore only necessary for loops which have a condition
+			// Work around D3DCompiler putting uniform variables that are used as the loop count register into integer registers (only in SM3)
+			// Only applies to dynamic loops with uniform variables in the condition, where it generates a loop instruction like "rep i0", but then expects the "i0" register to be set externally
+			// Moving the loop condition into the loop body forces it to move the uniform variable into a constant register instead and geneates a fixed number of loop iterations with "defi i0, 255, ..."
 			// Check 'condition_name' instead of 'condition_value' here to also catch cases where a constant boolean expression was passed in as loop condition
 			if (_shader_model < 40 && condition_name != "true")
 				code += "if (!" + condition_name + ") break;\n\t\t";
@@ -1321,9 +1346,10 @@ private:
 		_blocks.erase(loop_block);
 		_blocks.erase(continue_block);
 	}
-	void emit_switch(const location &loc, id selector_value, id selector_block, id default_label, const std::vector<id> &case_literal_and_labels, unsigned int flags) override
+	void emit_switch(const location &loc, id selector_value, id selector_block, id default_label, id default_block, const std::vector<id> &case_literal_and_labels, const std::vector<id> &case_blocks, unsigned int flags) override
 	{
-		assert(selector_value != 0 && selector_block != 0 && default_label != 0);
+		assert(selector_value != 0 && selector_block != 0 && default_label != 0 && default_block != 0);
+		assert(case_blocks.size() == case_literal_and_labels.size() / 2);
 
 		std::string &code = _blocks.at(_current_block);
 
@@ -1340,22 +1366,44 @@ private:
 
 			code += "switch (" + id_to_name(selector_value) + ")\n\t{\n";
 
-			for (size_t i = 0; i < case_literal_and_labels.size(); i += 2)
+			std::vector<id> labels = case_literal_and_labels;
+			for (size_t i = 0; i < labels.size(); i += 2)
 			{
-				assert(case_literal_and_labels[i + 1] != 0);
+				if (labels[i + 1] == 0)
+					continue; // Happens if a case was already handled, see below
 
-				std::string &case_data = _blocks.at(case_literal_and_labels[i + 1]);
+				code += "\tcase " + std::to_string(labels[i]) + ": ";
+
+				if (labels[i + 1] == default_label)
+				{
+					code += "default: ";
+					default_label = 0;
+				}
+				else
+				{
+					for (size_t k = i + 2; k < labels.size(); k += 2)
+					{
+						if (labels[k + 1] == 0 || labels[k + 1] != labels[i + 1])
+							continue;
+
+						code += "case " + std::to_string(labels[k]) + ": ";
+						labels[k + 1] = 0;
+					}
+				}
+
+				assert(case_blocks[i / 2] != 0);
+				std::string &case_data = _blocks.at(case_blocks[i / 2]);
 
 				increase_indentation_level(case_data);
 
-				code += "\tcase " + std::to_string(case_literal_and_labels[i]) + ": {\n";
+				code += "{\n";
 				code += case_data;
 				code += "\t}\n";
 			}
 
-			if (default_label != _current_block)
+			if (default_label != 0 && default_block != _current_block)
 			{
-				std::string &default_data = _blocks.at(default_label);
+				std::string &default_data = _blocks.at(default_block);
 
 				increase_indentation_level(default_data);
 
@@ -1363,7 +1411,7 @@ private:
 				code += default_data;
 				code += "\t}\n";
 
-				_blocks.erase(default_label);
+				_blocks.erase(default_block);
 			}
 
 			code += "\t}\n";
@@ -1377,31 +1425,44 @@ private:
 			if (flags & 0x1) code += "[flatten] ";
 			if (flags & 0x2) code += "[branch] ";
 
-			for (size_t i = 0; i < case_literal_and_labels.size(); i += 2)
+			std::vector<id> labels = case_literal_and_labels;
+			for (size_t i = 0; i < labels.size(); i += 2)
 			{
-				assert(case_literal_and_labels[i + 1] != 0);
+				if (labels[i + 1] == 0)
+					continue; // Happens if a case was already handled, see below
 
-				std::string &case_data = _blocks.at(case_literal_and_labels[i + 1]);
+				code += "if (" + id_to_name(selector_value) + " == " + std::to_string(labels[i]);
+
+				for (size_t k = i + 2; k < labels.size(); k += 2)
+				{
+					if (labels[k + 1] == 0 || labels[k + 1] != labels[i + 1])
+						continue;
+
+					code += " || " + id_to_name(selector_value) + " == " + std::to_string(labels[k]);
+					labels[k + 1] = 0;
+				}
+
+				assert(case_blocks[i / 2] != 0);
+				std::string &case_data = _blocks.at(case_blocks[i / 2]);
 
 				increase_indentation_level(case_data);
 
-				code += "if (" + id_to_name(selector_value) + " == " + std::to_string(case_literal_and_labels[i]) + ")\n\t{\n";
+				code += ")\n\t{\n";
 				code += case_data;
 				code += "\t}\n\telse\n\t";
-
 			}
 
 			code += "{\n";
 
-			if (default_label != _current_block)
+			if (default_block != _current_block)
 			{
-				std::string &default_data = _blocks.at(default_label);
+				std::string &default_data = _blocks.at(default_block);
 
 				increase_indentation_level(default_data);
 
 				code += default_data;
 
-				_blocks.erase(default_label);
+				_blocks.erase(default_block);
 			}
 
 			code += "\t} } while (false);\n";
@@ -1409,8 +1470,8 @@ private:
 
 		// Remove consumed blocks to save memory
 		_blocks.erase(selector_block);
-		for (size_t i = 0; i < case_literal_and_labels.size(); i += 2)
-			_blocks.erase(case_literal_and_labels[i + 1]);
+		for (const id case_block : case_blocks)
+			_blocks.erase(case_block);
 	}
 
 	id   create_block() override

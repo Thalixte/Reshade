@@ -116,8 +116,8 @@ struct spirv_basic_block
 class codegen_spirv final : public codegen
 {
 public:
-	codegen_spirv(bool vulkan_semantics, bool debug_info, bool uniforms_to_spec_constants, bool invert_y)
-		: _invert_y(invert_y), _debug_info(debug_info), _vulkan_semantics(vulkan_semantics), _uniforms_to_spec_constants(uniforms_to_spec_constants)
+	codegen_spirv(bool vulkan_semantics, bool debug_info, bool uniforms_to_spec_constants, bool enable_16bit_types, bool flip_vert_y)
+		: _debug_info(debug_info), _vulkan_semantics(vulkan_semantics), _uniforms_to_spec_constants(uniforms_to_spec_constants), _enable_16bit_types(enable_16bit_types), _flip_vert_y(flip_vert_y)
 	{
 		_glsl_ext = make_id();
 	}
@@ -175,10 +175,11 @@ private:
 	std::unordered_map<id, spirv_basic_block> _block_data;
 	spirv_basic_block *_current_block_data = nullptr;
 
-	bool _invert_y = false;
 	bool _debug_info = false;
 	bool _vulkan_semantics = false;
 	bool _uniforms_to_spec_constants = false;
+	bool _enable_16bit_types = false;
+	bool _flip_vert_y = false;
 	id _glsl_ext = 0;
 	id _global_ubo_type = 0;
 	id _global_ubo_variable = 0;
@@ -198,7 +199,7 @@ private:
 		}
 		else
 		{
-			add_instruction(spv::OpString, _debug_a, file)
+			add_instruction(spv::OpString, 0, _debug_a, file)
 				.add_string(loc.source.c_str());
 			_string_lookup.emplace(loc.source, file);
 		}
@@ -221,9 +222,10 @@ private:
 		instruction.result = make_id();
 		return instruction;
 	}
-	inline spirv_instruction &add_instruction(spv::Op op, spirv_basic_block &block, spv::Id &result)
+	inline spirv_instruction &add_instruction(spv::Op op, spv::Id type, spirv_basic_block &block, spv::Id &result)
 	{
 		spirv_instruction &instruction = add_instruction_without_result(op, block);
+		instruction.type = type;
 		instruction.result = result = make_id();
 		return instruction;
 	}
@@ -336,16 +338,20 @@ private:
 		}
 	}
 
-	spv::Id convert_type(const type &info, bool is_ptr = false, spv::StorageClass storage = spv::StorageClassFunction, uint32_t array_stride = 0)
+	spv::Id convert_type(type info, bool is_ptr = false, spv::StorageClass storage = spv::StorageClassFunction, uint32_t array_stride = 0)
 	{
 		assert(array_stride == 0 || info.is_array());
 
 		// The storage class is only relevant for pointers, so ignore it for other types during lookup
 		if (is_ptr == false)
 			storage = spv::StorageClassFunction;
-		// There cannot be function local sampler variables, so always assume uniform storage for them
+		// There cannot be sampler variables that are local to a function, so always assume uniform storage for them
 		if (info.is_texture() || info.is_sampler() || info.is_storage())
 			storage = spv::StorageClassUniformConstant;
+
+		// Fall back to 32-bit types and use relaxed precision decoration instead if 16-bit types are not enabled
+		if (!_enable_16bit_types && info.is_numeric() && info.precision() < 32)
+			info.base = static_cast<type::datatype>(info.base + 1); // min16int -> int, min16uint -> uint, min16float -> float
 
 		const type_lookup lookup = { info, is_ptr, array_stride, storage };
 		if (const auto it = std::find_if(_type_lookup.begin(), _type_lookup.end(),
@@ -357,7 +363,7 @@ private:
 		{
 			elem_type = convert_type(info, false, storage, array_stride);
 
-			add_instruction(spv::OpTypePointer, _types_and_constants, type)
+			add_instruction(spv::OpTypePointer, 0, _types_and_constants, type)
 				.add(storage)
 				.add(elem_type);
 		}
@@ -372,7 +378,7 @@ private:
 			elem_type = convert_type(elem_info, false, storage);
 			const spv::Id array_length = emit_constant(info.array_length);
 
-			add_instruction(spv::OpTypeArray, _types_and_constants, type)
+			add_instruction(spv::OpTypeArray, 0, _types_and_constants, type)
 				.add(elem_type)
 				.add(array_length);
 
@@ -392,7 +398,7 @@ private:
 			if (info.rows == 1)
 				return elem_type;
 
-			add_instruction(spv::OpTypeMatrix, _types_and_constants, type)
+			add_instruction(spv::OpTypeMatrix, 0, _types_and_constants, type)
 				.add(elem_type)
 				.add(info.rows);
 		}
@@ -404,7 +410,7 @@ private:
 
 			elem_type = convert_type(elem_info, false, storage);
 
-			add_instruction(spv::OpTypeVector, _types_and_constants, type)
+			add_instruction(spv::OpTypeVector, 0, _types_and_constants, type)
 				.add(elem_type)
 				.add(info.rows);
 		}
@@ -414,27 +420,53 @@ private:
 			{
 			case type::t_void:
 				assert(info.rows == 0 && info.cols == 0);
-				add_instruction(spv::OpTypeVoid, _types_and_constants, type);
+				add_instruction(spv::OpTypeVoid, 0, _types_and_constants, type);
 				break;
 			case type::t_bool:
 				assert(info.rows == 1 && info.cols == 1);
-				add_instruction(spv::OpTypeBool, _types_and_constants, type);
+				add_instruction(spv::OpTypeBool, 0, _types_and_constants, type);
+				break;
+			case type::t_min16int:
+				assert(_enable_16bit_types && info.rows == 1 && info.cols == 1);
+				add_capability(spv::CapabilityInt16);
+				if (storage == spv::StorageClassInput || storage == spv::StorageClassOutput)
+					add_capability(spv::CapabilityStorageInputOutput16);
+				add_instruction(spv::OpTypeInt, 0, _types_and_constants, type)
+					.add(16) // Width
+					.add(1); // Signedness
 				break;
 			case type::t_int:
 				assert(info.rows == 1 && info.cols == 1);
-				add_instruction(spv::OpTypeInt, _types_and_constants, type)
+				add_instruction(spv::OpTypeInt, 0, _types_and_constants, type)
 					.add(32) // Width
 					.add(1); // Signedness
 				break;
+			case type::t_min16uint:
+				assert(_enable_16bit_types && info.rows == 1 && info.cols == 1);
+				add_capability(spv::CapabilityInt16);
+				if (storage == spv::StorageClassInput || storage == spv::StorageClassOutput)
+					add_capability(spv::CapabilityStorageInputOutput16);
+				add_instruction(spv::OpTypeInt, 0, _types_and_constants, type)
+					.add(16) // Width
+					.add(0); // Signedness
+				break;
 			case type::t_uint:
 				assert(info.rows == 1 && info.cols == 1);
-				add_instruction(spv::OpTypeInt, _types_and_constants, type)
+				add_instruction(spv::OpTypeInt, 0, _types_and_constants, type)
 					.add(32) // Width
 					.add(0); // Signedness
 				break;
+			case type::t_min16float:
+				assert(_enable_16bit_types && info.rows == 1 && info.cols == 1);
+				add_capability(spv::CapabilityFloat16);
+				if (storage == spv::StorageClassInput || storage == spv::StorageClassOutput)
+					add_capability(spv::CapabilityStorageInputOutput16);
+				add_instruction(spv::OpTypeFloat, 0, _types_and_constants, type)
+					.add(16); // Width
+				break;
 			case type::t_float:
 				assert(info.rows == 1 && info.cols == 1);
-				add_instruction(spv::OpTypeFloat, _types_and_constants, type)
+				add_instruction(spv::OpTypeFloat, 0, _types_and_constants, type)
 					.add(32); // Width
 				break;
 			case type::t_struct:
@@ -444,7 +476,7 @@ private:
 			case type::t_sampler:
 				assert(info.rows == 0 && info.cols == 0);
 				elem_type = convert_type({ type::t_texture, 0, 0, type::q_uniform });
-				add_instruction(spv::OpTypeSampledImage, _types_and_constants, type)
+				add_instruction(spv::OpTypeSampledImage, 0, _types_and_constants, type)
 					.add(elem_type);
 				break;
 			case type::t_storage:
@@ -453,15 +485,14 @@ private:
 			case type::t_texture:
 				assert(info.rows == 0 && info.cols == 0);
 				elem_type = convert_type({ type::t_float, 1, 1 });
-				add_instruction(spv::OpTypeImage, _types_and_constants, type)
+				add_instruction(spv::OpTypeImage, 0, _types_and_constants, type)
 					.add(elem_type) // Sampled Type
 					.add(spv::Dim2D)
 					.add(0) // Not a depth image
 					.add(0) // Not an array
 					.add(0) // Not multi-sampled
 					.add(info.is_texture() ? 1 : 2) // Used with a sampler or as storage
-					.add(spv::ImageFormatUnknown)
-					.result;
+					.add(spv::ImageFormatUnknown);
 				break;
 			default:
 				return assert(false), 0;
@@ -495,26 +526,55 @@ private:
 		return inst.result;
 	}
 
-	bool semantic_to_builtin(const std::string &semantic, spv::BuiltIn &builtin, shader_type stype)
+	uint32_t semantic_to_location(const std::string &semantic, uint32_t max_array_length = 1)
 	{
-		builtin = spv::BuiltInMax;
+		if (semantic.compare(0, 5, "COLOR") == 0)
+			return std::strtoul(semantic.c_str() + 5, nullptr, 10);
+		if (semantic.compare(0, 9, "SV_TARGET") == 0)
+			return std::strtoul(semantic.c_str() + 9, nullptr, 10);
+
+		if (const auto it = _semantic_to_location.find(semantic);
+			it != _semantic_to_location.end())
+			return it->second;
+
+		// Extract the semantic index from the semantic name (e.g. 2 for "TEXCOORD2")
+		size_t digit_index = semantic.size() - 1;
+		while (digit_index != 0 && semantic[digit_index] >= '0' && semantic[digit_index] <= '9')
+			digit_index--;
+		digit_index++;
+		const uint32_t base_index = std::strtoul(semantic.c_str() + digit_index, nullptr, 10);
+		const std::string base_semantic = semantic.substr(0, digit_index);
+
+		// Now create adjoining location indices for all possible semantic indices belonging to this semantic name
+		uint32_t location = static_cast<uint32_t>(_semantic_to_location.size());
+		max_array_length += base_index;
+		for (uint32_t a = 0; a < max_array_length; ++a)
+			_semantic_to_location.emplace(base_semantic + std::to_string(a), location + a);
+
+		return location + base_index;
+	}
+
+	const spv::BuiltIn semantic_to_builtin(const std::string &semantic, shader_type stype)
+	{
 		if (semantic == "SV_POSITION")
-			builtin = stype == shader_type::ps ? spv::BuiltInFragCoord : spv::BuiltInPosition;
-		else if (semantic == "SV_DEPTH")
-			builtin = spv::BuiltInFragDepth;
-		else if (semantic == "SV_VERTEXID")
-			builtin = _vulkan_semantics ? spv::BuiltInVertexIndex : spv::BuiltInVertexId;
-		else if (semantic == "SV_ISFRONTFACE")
-			builtin = spv::BuiltInFrontFacing;
-		else if (semantic == "SV_GROUPID")
-			builtin = spv::BuiltInWorkgroupId;
-		else if (semantic == "SV_GROUPINDEX")
-			builtin = spv::BuiltInLocalInvocationIndex;
-		else if (semantic == "SV_GROUPTHREADID")
-			builtin = spv::BuiltInLocalInvocationId;
-		else if (semantic == "SV_DISPATCHTHREADID")
-			builtin = spv::BuiltInGlobalInvocationId;
-		return builtin != spv::BuiltInMax;
+			return stype == shader_type::ps ? spv::BuiltInFragCoord : spv::BuiltInPosition;
+		if (semantic == "SV_POINTSIZE")
+			return spv::BuiltInPointSize;
+		if (semantic == "SV_DEPTH")
+			return spv::BuiltInFragDepth;
+		if (semantic == "SV_VERTEXID")
+			return _vulkan_semantics ? spv::BuiltInVertexIndex : spv::BuiltInVertexId;
+		if (semantic == "SV_ISFRONTFACE")
+			return spv::BuiltInFrontFacing;
+		if (semantic == "SV_GROUPID")
+			return spv::BuiltInWorkgroupId;
+		if (semantic == "SV_GROUPINDEX")
+			return spv::BuiltInLocalInvocationIndex;
+		if (semantic == "SV_GROUPTHREADID")
+			return spv::BuiltInLocalInvocationId;
+		if (semantic == "SV_DISPATCHTHREADID")
+			return spv::BuiltInGlobalInvocationId;
+		return spv::BuiltInMax;
 	}
 
 	inline void add_name(id id, const char *name)
@@ -588,14 +648,21 @@ private:
 		// Afterwards define the actual struct type
 		add_location(loc, _types_and_constants);
 
-		info.definition = add_instruction(spv::OpTypeStruct, 0, _types_and_constants)
-			.add(member_types.begin(), member_types.end()).result;
+		add_instruction(spv::OpTypeStruct, 0, _types_and_constants, info.definition)
+			.add(member_types.begin(), member_types.end());
 
 		if (!info.unique_name.empty())
 			add_name(info.definition, info.unique_name.c_str());
 
 		for (uint32_t index = 0; index < info.member_list.size(); ++index)
-			add_member_name(info.definition, index, info.member_list[index].name.c_str());
+		{
+			const struct_member_info &member = info.member_list[index];
+
+			add_member_name(info.definition, index, member.name.c_str());
+
+			if (!_enable_16bit_types && member.type.is_numeric() && member.type.precision() < 32)
+				add_member_decoration(info.definition, index, spv::DecorationRelaxedPrecision);
+		}
 
 		_structs.push_back(info);
 
@@ -728,26 +795,27 @@ private:
 				add_decoration(_global_ubo_variable, spv::DecorationBinding, { 0 });
 			}
 
+			uint32_t alignment = (info.type.rows == 3 ? 4 : info.type.rows) * 4;
+			info.size = info.type.rows * 4;
+
 			uint32_t array_stride = 16;
 			const uint32_t matrix_stride = 16;
 
 			if (info.type.is_matrix())
-				// Column major case, for row major this would be like in HLSL
+			{
+				alignment = matrix_stride;
 				info.size = info.type.rows * matrix_stride;
-			else
-				info.size = info.type.rows * 4;
+			}
 			if (info.type.is_array())
 			{
+				alignment = array_stride;
 				array_stride = align_up(info.size, array_stride);
 				// Uniform block rules do not permit anything in the padding of an array
 				info.size = array_stride * info.type.array_length;
 			}
 
 			info.offset = _module.total_uniform_size;
-			// Make sure member does not have an improper straddle
-			const uint32_t remaining = 16 - (info.offset & 15);
-			if (remaining != 16 && info.size > remaining)
-				info.offset += remaining;
+			info.offset = align_up(info.offset, alignment);
 			_module.total_uniform_size = info.offset + info.size;
 
 			type ubo_type = info.type;
@@ -797,12 +865,10 @@ private:
 
 		add_location(loc, block);
 
-		// https://www.khronos.org/registry/spir-v/specs/unified1/SPIRV.html#OpVariable
 		spv::Id res;
-		spirv_instruction &inst = add_instruction(spv::OpVariable, block, res);
-		inst.type = convert_type(type, true, storage);
-
-		inst.add(storage);
+		// https://www.khronos.org/registry/spir-v/specs/unified1/SPIRV.html#OpVariable
+		spirv_instruction &inst = add_instruction(spv::OpVariable, convert_type(type, true, storage), block, res)
+			.add(storage);
 
 		if (initializer_value != 0)
 		{
@@ -823,6 +889,9 @@ private:
 		if (name != nullptr && *name != '\0')
 			add_name(res, name);
 
+		if (!_enable_16bit_types && type.is_numeric() && type.precision() < 32)
+			add_decoration(res, spv::DecorationRelaxedPrecision);
+
 		_storage_lookup[res] = storage;
 
 		return res;
@@ -841,9 +910,10 @@ private:
 
 		add_location(loc, function.declaration);
 
-		info.definition = add_instruction(spv::OpFunction, convert_type(info.return_type), function.declaration)
+		// https://www.khronos.org/registry/spir-v/specs/unified1/SPIRV.html#OpFunction
+		add_instruction(spv::OpFunction, convert_type(info.return_type), function.declaration, info.definition)
 			.add(spv::FunctionControlMaskNone)
-			.add(convert_type(function)).result;
+			.add(convert_type(function));
 
 		if (!info.name.empty())
 			add_name(info.definition, info.name.c_str());
@@ -862,11 +932,14 @@ private:
 		return info.definition;
 	}
 
-	void define_entry_point(function_info &func, shader_type stype, int num_threads[2]) override
+	void define_entry_point(function_info &func, shader_type stype, int num_threads[3]) override
 	{
 		// Modify entry point name so each thread configuration is made separate
 		if (stype == shader_type::cs)
-			func.unique_name = 'E' + func.unique_name + '_' + std::to_string(num_threads[0]) + '_' + std::to_string(num_threads[1]);
+			func.unique_name = 'E' + func.unique_name +
+				'_' + std::to_string(num_threads[0]) +
+				'_' + std::to_string(num_threads[1]) +
+				'_' + std::to_string(num_threads[2]);
 
 		if (const auto it = std::find_if(_module.entry_points.begin(), _module.entry_points.end(),
 			[&func](const auto &ep) { return ep.name == func.unique_name; }); it != _module.entry_points.end())
@@ -874,7 +947,7 @@ private:
 
 		_module.entry_points.push_back({ func.unique_name, stype });
 
-		spv::Id position_variable = 0;
+		spv::Id position_variable = 0, point_size_variable = 0;
 		std::vector<spv::Id> inputs_and_outputs;
 		std::vector<expression> call_params;
 
@@ -886,94 +959,96 @@ private:
 		enter_block(create_block());
 
 		const auto create_varying_param = [this, &call_params](const struct_member_info &param) {
-			const spv::Id local_variable = define_variable({}, param.type, nullptr, spv::StorageClassFunction);
-			call_params.emplace_back().reset_to_lvalue({}, local_variable, param.type);
-			return local_variable;
+			const spv::Id variable = define_variable({}, param.type, nullptr, spv::StorageClassFunction);
+
+			expression &call_param = call_params.emplace_back();
+			call_param.reset_to_lvalue({}, variable, param.type);
+
+			return variable;
 		};
-		const auto create_varying_variable = [this, &inputs_and_outputs, &position_variable, stype](const type &param_type, std::string semantic, spv::StorageClass storage) {
-			const spv::Id attrib_variable = define_variable({}, param_type, nullptr, storage);
-			if (spv::BuiltIn builtin; semantic_to_builtin(semantic, builtin, stype))
+
+		const auto create_varying_variable = [this, &inputs_and_outputs, &position_variable, &point_size_variable, stype](const type &param_type, const std::string &semantic, spv::StorageClass storage, int a = 0) {
+			const spv::Id variable = define_variable({}, param_type, nullptr, storage);
+
+			if (const spv::BuiltIn builtin = semantic_to_builtin(semantic, stype);
+				builtin != spv::BuiltInMax)
 			{
-				add_builtin(attrib_variable, builtin);
+				assert(a == 0); // Built-in variables cannot be arrays
+
+				add_builtin(variable, builtin);
 
 				if (builtin == spv::BuiltInPosition && storage == spv::StorageClassOutput)
-					position_variable = attrib_variable;
+					position_variable = variable;
+				if (builtin == spv::BuiltInPointSize && storage == spv::StorageClassOutput)
+					point_size_variable = variable;
 			}
 			else
 			{
-				assert(stype != shader_type::cs);
+				assert(stype != shader_type::cs); // Compute shaders cannot have custom inputs or outputs
 
-				// Always numerate semantics, so that e.g. TEXCOORD and TEXCOORD0 point to the same location
-				if (!semantic.empty())
-					if (const char c = semantic.back(); c < '0' || c > '9')
-						semantic += '0';
-
-				uint32_t location = 0;
-				if (semantic.compare(0, 9, "SV_TARGET") == 0)
-					location = std::strtoul(semantic.c_str() + 9, nullptr, 10);
-				else if (semantic.compare(0, 5, "COLOR") == 0)
-					location = std::strtoul(semantic.c_str() + 5, nullptr, 10);
-				else if (const auto it = _semantic_to_location.find(semantic); it != _semantic_to_location.end())
-					location = it->second;
-				else
-					_semantic_to_location[semantic] = location = static_cast<uint32_t>(_semantic_to_location.size());
-
-				add_decoration(attrib_variable, spv::DecorationLocation, { location });
+				const uint32_t location = semantic_to_location(semantic, std::max(1, param_type.array_length));
+				add_decoration(variable, spv::DecorationLocation, { location + a });
 			}
 
 			if (param_type.has(type::q_noperspective))
-				add_decoration(attrib_variable, spv::DecorationNoPerspective);
+				add_decoration(variable, spv::DecorationNoPerspective);
 			if (param_type.has(type::q_centroid))
-				add_decoration(attrib_variable, spv::DecorationCentroid);
+				add_decoration(variable, spv::DecorationCentroid);
 			if (param_type.has(type::q_nointerpolation))
-				add_decoration(attrib_variable, spv::DecorationFlat);
+				add_decoration(variable, spv::DecorationFlat);
 
-			inputs_and_outputs.push_back(attrib_variable);
-			return attrib_variable;
+			inputs_and_outputs.push_back(variable);
+			return variable;
 		};
 
 		// Translate function parameters to input/output variables
 		for (const struct_member_info &param : func.parameter_list)
 		{
-			if (param.type.has(type::q_out))
-			{
-				create_varying_param(param);
+			spv::Id param_var = create_varying_param(param), param_value = 0;
 
+			// Create separate input/output variables for "inout" parameters
+			if (param.type.has(type::q_in))
+			{
 				// Flatten structure parameters
 				if (param.type.is_struct())
 				{
-					for (const struct_member_info &member : find_struct(param.type.definition).member_list)
+					const struct_info &definition = find_struct(param.type.definition);
+
+					type struct_type = param.type;
+					const int array_length = std::max(1, param.type.array_length);
+					struct_type.array_length = 0;
+
+					// Struct arrays need to be flattened into individual elements as well
+					std::vector<spv::Id> array_elements;
+					array_elements.reserve(array_length);
+					for (int a = 0; a < array_length; a++)
 					{
-						create_varying_variable(member.type, member.semantic, spv::StorageClassOutput);
+						std::vector<spv::Id> struct_elements;
+						struct_elements.reserve(definition.member_list.size());
+						for (const struct_member_info &member : definition.member_list)
+						{
+							spv::Id input_var = create_varying_variable(member.type, member.semantic, spv::StorageClassInput, a);
+
+							param_value = add_instruction(spv::OpLoad, convert_type(member.type))
+								.add(input_var).result;
+							struct_elements.push_back(param_value);
+						}
+
+						param_value = add_instruction(spv::OpCompositeConstruct, convert_type(struct_type))
+							.add(struct_elements.begin(), struct_elements.end()).result;
+						array_elements.push_back(param_value);
+					}
+
+					if (param.type.is_array())
+					{
+						// Build the array from all constructed struct elements
+						param_value = add_instruction(spv::OpCompositeConstruct, convert_type(param.type))
+							.add(array_elements.begin(), array_elements.end()).result;
 					}
 				}
 				else
 				{
-					create_varying_variable(param.type, param.semantic, spv::StorageClassOutput);
-				}
-			}
-			else
-			{
-				spv::Id param_value, param_var = create_varying_param(param), input_var;
-
-				if (param.type.is_struct())
-				{
-					std::vector<spv::Id> elements;
-					for (const struct_member_info &member : find_struct(param.type.definition).member_list)
-					{
-						input_var = create_varying_variable(member.type, member.semantic, spv::StorageClassInput);
-
-						param_value = add_instruction(spv::OpLoad, convert_type(member.type))
-							.add(input_var).result;
-						elements.push_back(param_value);
-					}
-
-					param_value = add_instruction(spv::OpCompositeConstruct, convert_type(param.type))
-						.add(elements.begin(), elements.end()).result;
-				}
-				else
-				{
-					input_var = create_varying_variable(param.type, param.semantic, spv::StorageClassInput);
+					spv::Id input_var = create_varying_variable(param.type, param.semantic, spv::StorageClassInput);
 
 					param_value = add_instruction(spv::OpLoad, convert_type(param.type))
 						.add(input_var).result;
@@ -982,6 +1057,26 @@ private:
 				add_instruction_without_result(spv::OpStore)
 					.add(param_var)
 					.add(param_value);
+			}
+
+			if (param.type.has(type::q_out))
+			{
+				if (param.type.is_struct())
+				{
+					const struct_info &definition = find_struct(param.type.definition);
+
+					for (int a = 0, array_length = std::max(1, param.type.array_length); a < array_length; a++)
+					{
+						for (const struct_member_info &member : definition.member_list)
+						{
+							create_varying_variable(member.type, member.semantic, spv::StorageClassOutput, a);
+						}
+					}
+				}
+				else
+				{
+					create_varying_variable(param.type, param.semantic, spv::StorageClassOutput);
+				}
 			}
 		}
 
@@ -1000,21 +1095,46 @@ private:
 				{
 					const struct_info &definition = find_struct(param.type.definition);
 
-					for (uint32_t member_index = 0; member_index < definition.member_list.size(); ++member_index)
+					type struct_type = param.type;
+					const int array_length = std::max(1, param.type.array_length);
+					struct_type.array_length = 0;
+
+					// Skip input variables if this is an "inout" parameter
+					if (param.type.has(type::q_in))
+						inputs_and_outputs_index += definition.member_list.size() * array_length;
+
+					// Split up struct array into individual struct elements again
+					for (int a = 0; a < array_length; a++)
 					{
-						const struct_member_info &member = definition.member_list[member_index];
+						spv::Id element_value = value;
+						if (param.type.is_array())
+						{
+							element_value = add_instruction(spv::OpCompositeExtract, convert_type(struct_type))
+								.add(value)
+								.add(a).result;
+						}
 
-						const spv::Id member_value = add_instruction(spv::OpCompositeExtract, convert_type(member.type))
-							.add(value)
-							.add(member_index).result;
+						// Split out struct fields into separate output variables again
+						for (uint32_t member_index = 0; member_index < definition.member_list.size(); ++member_index)
+						{
+							const struct_member_info &member = definition.member_list[member_index];
 
-						add_instruction_without_result(spv::OpStore)
-							.add(inputs_and_outputs[inputs_and_outputs_index++])
-							.add(member_value);
+							const spv::Id member_value = add_instruction(spv::OpCompositeExtract, convert_type(member.type))
+								.add(element_value)
+								.add(member_index).result;
+
+							add_instruction_without_result(spv::OpStore)
+								.add(inputs_and_outputs[inputs_and_outputs_index++])
+								.add(member_value);
+						}
 					}
 				}
 				else
 				{
+					// Skip input variable if this is an "inout" parameter (see loop above)
+					if (param.type.has(type::q_in))
+						inputs_and_outputs_index += 1;
+
 					add_instruction_without_result(spv::OpStore)
 						.add(inputs_and_outputs[inputs_and_outputs_index++])
 						.add(value);
@@ -1022,10 +1142,11 @@ private:
 			}
 			else
 			{
+				// Input parameters do not need to store anything, but increase the input/output variable index
 				if (param.type.is_struct())
 				{
 					const struct_info &definition = find_struct(param.type.definition);
-					inputs_and_outputs_index += definition.member_list.size();
+					inputs_and_outputs_index += definition.member_list.size() * std::max(1, param.type.array_length);
 				}
 				else
 				{
@@ -1062,7 +1183,7 @@ private:
 		}
 
 		// Add code to flip the output vertically
-		if (_invert_y && position_variable && stype == shader_type::vs)
+		if (_flip_vert_y && position_variable != 0 && stype == shader_type::vs)
 		{
 			expression position;
 			position.reset_to_lvalue({}, position_variable, { type::t_float, 4, 1 });
@@ -1072,6 +1193,18 @@ private:
 			emit_store(position,
 				emit_unary_op({}, tokenid::minus, { type::t_float, 1, 1 },
 					emit_load(position, false)));
+		}
+
+		// Add code that sets the point size to a default value (in case this vertex shader is used with point primitives)
+		if (point_size_variable == 0 && stype == shader_type::vs)
+		{
+			create_varying_variable({ type::t_float, 1, 1 }, "SV_POINTSIZE", spv::StorageClassOutput);
+
+			expression point_size;
+			point_size.reset_to_lvalue({}, point_size_variable, { type::t_float, 1, 1 });
+
+			// gl_PointSize = 1.0
+			emit_store(point_size, emit_constant({ type::t_float, 1, 1 }, 1));
 		}
 
 		leave_block_and_return(0);
@@ -1087,7 +1220,7 @@ private:
 			model = spv::ExecutionModelFragment;
 			add_instruction_without_result(spv::OpExecutionMode, _execution_modes)
 				.add(entry_point.definition)
-				.add(spv::ExecutionModeOriginUpperLeft);
+				.add(_vulkan_semantics ? spv::ExecutionModeOriginUpperLeft : spv::ExecutionModeOriginLowerLeft);
 			break;
 		case shader_type::cs:
 			model = spv::ExecutionModelGLCompute;
@@ -1096,7 +1229,7 @@ private:
 				.add(spv::ExecutionModeLocalSize)
 				.add(num_threads[0])
 				.add(num_threads[1])
-				.add(1u);
+				.add(num_threads[2]);
 			break;
 		default:
 			assert(false);
@@ -1224,31 +1357,57 @@ private:
 						.add(false_constant)
 						.result;
 				}
-				else if (op.to.is_boolean())
-				{
-					result = add_instruction(op.from.is_floating_point() ? spv::OpFOrdNotEqual : spv::OpINotEqual, convert_type(op.to))
-						.add(result)
-						.add(emit_constant(op.from, 0))
-						.result;
-				}
 				else
 				{
 					spv::Op spv_op = spv::OpNop;
 					switch (op.to.base)
 					{
+					case type::t_bool:
+						if (op.from.is_floating_point())
+							spv_op = spv::OpFOrdNotEqual;
+						else
+							spv_op = spv::OpINotEqual;
+						// Add instruction to compare value against zero instead of casting
+						result = add_instruction(spv_op, convert_type(op.to))
+							.add(result)
+							.add(emit_constant(op.from, 0))
+							.result;
+						continue;
+					case type::t_min16int:
 					case type::t_int:
-						spv_op = op.from.is_floating_point() ? spv::OpConvertFToS : spv::OpBitcast;
+						if (op.from.is_floating_point())
+							spv_op = spv::OpConvertFToS;
+						else if (op.from.precision() == op.to.precision())
+							spv_op = spv::OpBitcast;
+						else if (_enable_16bit_types)
+							spv_op = spv::OpSConvert;
+						else
+							continue; // Do not have to add conversion instruction between min16int/int if 16-bit types are not enabled
 						break;
+					case type::t_min16uint:
 					case type::t_uint:
-						spv_op = op.from.is_floating_point() ? spv::OpConvertFToU : spv::OpBitcast;
+						if (op.from.is_floating_point())
+							spv_op = spv::OpConvertFToU;
+						else if (op.from.precision() == op.to.precision())
+							spv_op = spv::OpBitcast;
+						else if (_enable_16bit_types)
+							spv_op = spv::OpUConvert;
+						else
+							continue;
 						break;
+					case type::t_min16float:
 					case type::t_float:
-						assert(op.from.is_integral());
-						spv_op = op.from.is_signed() ? spv::OpConvertSToF : spv::OpConvertUToF;
+						if (op.from.is_floating_point() && !_enable_16bit_types)
+							continue; // Do not have to add conversion instruction between min16float/float if 16-bit types are not enabled
+						else if (op.from.is_floating_point())
+							spv_op = spv::OpFConvert;
+						else if (op.from.is_signed())
+							spv_op = spv::OpConvertSToF;
+						else
+							spv_op = spv::OpConvertUToF;
 						break;
 					default:
 						assert(false);
-						break;
 					}
 
 					result = add_instruction(spv_op, convert_type(op.to))
@@ -1257,16 +1416,11 @@ private:
 				}
 				break;
 			case expression::operation::op_dynamic_index:
-				if (op.from.is_vector())
-				{
-					assert(op.to.is_scalar());
-					result = add_instruction(spv::OpVectorExtractDynamic, convert_type(op.to))
-						.add(result) // Vector
-						.add(op.index) // Index
-						.result; // Result ID
-					break;
-				}
-				assert(false);
+				assert(op.from.is_vector() && op.to.is_scalar());
+				result = add_instruction(spv::OpVectorExtractDynamic, convert_type(op.to))
+					.add(result) // Vector
+					.add(op.index) // Index
+					.result;
 				break;
 			case expression::operation::op_member: // In case of struct return values, which are r-values
 			case expression::operation::op_constant_index:
@@ -1710,6 +1864,8 @@ private:
 
 		if (res_type.has(type::q_precise))
 			add_decoration(inst.result, spv::DecorationNoContraction);
+		if (!_enable_16bit_types && res_type.precision() < 32)
+			add_decoration(inst.result, spv::DecorationRelaxedPrecision);
 
 		return inst.result;
 	}
@@ -1898,8 +2054,10 @@ private:
 
 		_current_block_data->instructions.push_back(merge_label);
 	}
-	void emit_switch(const location &loc, id, id selector_block, id default_label, const std::vector<id> &case_literal_and_labels, unsigned int selection_control) override
+	void emit_switch(const location &loc, id, id selector_block, id default_label, id default_block, const std::vector<id> &case_literal_and_labels, const std::vector<id> &case_blocks, unsigned int selection_control) override
 	{
+		assert(case_blocks.size() == case_literal_and_labels.size() / 2);
+
 		spirv_instruction merge_label = _current_block_data->instructions.back();
 		assert(merge_label.op == spv::OpLabel);
 		_current_block_data->instructions.pop_back();
@@ -1923,10 +2081,15 @@ private:
 
 		// Append all blocks belonging to the switch
 		_current_block_data->instructions.push_back(switch_inst);
-		for (size_t i = 0; i < case_literal_and_labels.size(); i += 2)
-			_current_block_data->append(_block_data[case_literal_and_labels[i + 1]]);
+
+		std::vector<id> blocks = case_blocks;
 		if (default_label != merge_label.result)
-			_current_block_data->append(_block_data[default_label]);
+			blocks.push_back(default_block);
+		// Eliminate duplicates (because of multiple case labels pointing to the same block)
+		std::sort(blocks.begin(), blocks.end());
+		blocks.erase(std::unique(blocks.begin(), blocks.end()), blocks.end());
+		for (const id case_block : blocks)
+			_current_block_data->append(_block_data[case_block]);
 
 		_current_block_data->instructions.push_back(merge_label);
 	}
@@ -2040,7 +2203,7 @@ private:
 	}
 };
 
-codegen *reshadefx::create_codegen_spirv(bool vulkan_semantics, bool debug_info, bool uniforms_to_spec_constants, bool invert_y)
+codegen *reshadefx::create_codegen_spirv(bool vulkan_semantics, bool debug_info, bool uniforms_to_spec_constants, bool enable_16bit_types, bool flip_vert_y)
 {
-	return new codegen_spirv(vulkan_semantics, debug_info, uniforms_to_spec_constants, invert_y);
+	return new codegen_spirv(vulkan_semantics, debug_info, uniforms_to_spec_constants, enable_16bit_types, flip_vert_y);
 }
