@@ -225,6 +225,9 @@
     <ClCompile Include="source\windows\ws2_32.cpp">
       <Filter>hooks\windows</Filter>
     </ClCompile>
+    <ClCompile Include="source\d3d12\d3d12_pipeline_library.cpp">
+      <Filter>hooks\d3d12</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="source\dll_log.hpp">
@@ -379,6 +382,9 @@
     </ClInclude>
     <ClInclude Include="res\version.h">
       <Filter>resources</Filter>
+    </ClInclude>
+    <ClInclude Include="source\d3d12\d3d12_pipeline_library.hpp">
+      <Filter>hooks\d3d12</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

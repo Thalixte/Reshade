@@ -217,3 +217,17 @@ com_ptr<ID3D10Texture2D> reshade::d3d10::state_tracking::find_best_depth_texture
 	return best_match;
 }
 #endif
+
+#if RESHADE_WIREFRAME
+
+void reshade::d3d10::state_tracking::set_wireframe_mode(bool value)
+{
+	_wireframe_mode = value;
+}
+
+const bool reshade::d3d10::state_tracking::get_wireframe_mode()
+{
+	return _wireframe_mode;
+}
+
+#endif

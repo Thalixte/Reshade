@@ -29,10 +29,20 @@ void reshade::d3d9::state_tracking::reset(bool release_resources)
 		com_ptr<IDirect3DSurface9> depthstencil;
 		_device->GetDepthStencilSurface(&depthstencil);
 
+#if RESHADE_WIREFRAME
+		// ensure that all the depth surfaces are cleared at the end of the frame
+		for (com_ptr<IDirect3DSurface9> depth_surface : _depthstencil_replacement)
+		{
+			// Clear the replacement at the end of the frame, since the clear performed by the application was only applied to the original one
+			_device->SetDepthStencilSurface(depth_surface.get());
+			_device->Clear(0, nullptr, D3DCLEAR_ZBUFFER, 0, 1.0f, 0);
+		}
+#else
 		// Clear the first replacement at the end of the frame, since any clear performed by the application was redirected to a different one
 		// Do not have to do this to the others, since the first operation on any of them is a clear anyway (see 'on_clear_depthstencil')
 		_device->SetDepthStencilSurface(_depthstencil_replacement[0].get());
 		_device->Clear(0, nullptr, D3DCLEAR_ZBUFFER, 0, 1.0f, 0);
+#endif
 
 		// Keep the depth-stencil surface set to the first replacement (because of the above 'SetDepthStencilSurface' call) if the original one we want to replace was set, so starting next frame it is the one used again
 		if (std::find(_depthstencil_replacement.begin(), _depthstencil_replacement.end(), depthstencil) == _depthstencil_replacement.end() && depthstencil != _depthstencil_original)
@@ -85,6 +95,13 @@ void reshade::d3d9::state_tracking::on_draw(D3DPRIMITIVETYPE type, UINT vertices
 		counters.current_stats.drawcalls += 1;
 		_device->GetViewport(&counters.current_stats.viewport);
 	}
+#endif
+
+#if RESHADE_WIREFRAME
+	if (_wireframe_mode == true)
+		_device->SetRenderState(D3DRS_FILLMODE, D3DFILL_WIREFRAME);
+	else
+		_device->SetRenderState(D3DRS_FILLMODE, D3DFILL_SOLID);
 #endif
 }
 
@@ -357,3 +374,18 @@ com_ptr<IDirect3DSurface9> reshade::d3d9::state_tracking::find_best_depth_surfac
 	return nullptr;
 }
 #endif
+
+#if RESHADE_WIREFRAME
+
+void reshade::d3d9::state_tracking::set_wireframe_mode(bool value)
+{
+	_wireframe_mode = value;
+}
+
+const bool reshade::d3d9::state_tracking::get_wireframe_mode()
+{
+	return _wireframe_mode;
+}
+
+#endif
+

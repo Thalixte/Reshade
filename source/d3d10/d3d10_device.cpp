@@ -192,6 +192,14 @@ void    STDMETHODCALLTYPE D3D10Device::DrawAuto()
 }
 void    STDMETHODCALLTYPE D3D10Device::RSSetState(ID3D10RasterizerState *pRasterizerState)
 {
+#if RESHADE_WIREFRAME
+	if (_state.get_wireframe_mode() == true)
+	{
+		_orig->RSSetState(_wireframe_rasterizer);
+		return;
+	}
+#endif
+
 	_orig->RSSetState(pRasterizerState);
 }
 void    STDMETHODCALLTYPE D3D10Device::RSSetViewports(UINT NumViewports, const D3D10_VIEWPORT *pViewports)
@@ -543,7 +551,18 @@ HRESULT STDMETHODCALLTYPE D3D10Device::CreateDepthStencilState(const D3D10_DEPTH
 }
 HRESULT STDMETHODCALLTYPE D3D10Device::CreateRasterizerState(const D3D10_RASTERIZER_DESC *pRasterizerDesc, ID3D10RasterizerState **ppRasterizerState)
 {
-	return _orig->CreateRasterizerState(pRasterizerDesc, ppRasterizerState);
+	HRESULT hr = _orig->CreateRasterizerState(pRasterizerDesc, ppRasterizerState);
+
+#if RESHADE_WIREFRAME
+	// Create wireframe rasterizer state
+	D3D10_RASTERIZER_DESC desc = {};
+	desc.FillMode = D3D10_FILL_WIREFRAME;
+	desc.CullMode = D3D10_CULL_NONE;
+	desc.DepthClipEnable = TRUE;
+	hr = _orig->CreateRasterizerState(&desc, &_wireframe_rasterizer);
+#endif
+
+	return hr;
 }
 HRESULT STDMETHODCALLTYPE D3D10Device::CreateSamplerState(const D3D10_SAMPLER_DESC *pSamplerDesc, ID3D10SamplerState **ppSamplerState)
 {

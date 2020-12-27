@@ -38,6 +38,11 @@ namespace reshade::d3d12
 		void on_clear_depthstencil(D3D12_CLEAR_FLAGS clear_flags, D3D12_CPU_DESCRIPTOR_HANDLE dsv);
 #endif
 
+#if RESHADE_WIREFRAME
+		const bool get_wireframe_mode();
+		void on_set_pipelineState(ID3D12PipelineState **ppPipelineState);
+#endif
+
 	protected:
 		draw_stats _stats;
 		ID3D12Device *_device = nullptr;
@@ -79,6 +84,12 @@ namespace reshade::d3d12
 			ID3D12Resource *override = nullptr);
 #endif
 
+#if RESHADE_WIREFRAME
+		void set_wireframe_mode(bool value);
+		HRESULT on_create_pipelineState(const D3D12_PIPELINE_STATE_STREAM_DESC *pDesc, void **ppPipelineState);
+		HRESULT on_create_graphics_pipelineState(const D3D12_GRAPHICS_PIPELINE_STATE_DESC *pDesc, void **ppPipelineState);
+#endif
+
 	private:
 #if RESHADE_DEPTH
 		com_ptr<ID3D12Resource> resource_from_handle(D3D12_CPU_DESCRIPTOR_HANDLE handle) const;
@@ -89,6 +100,11 @@ namespace reshade::d3d12
 		com_ptr<ID3D12Resource> _depthstencil_clear_texture;
 		// Do not hold a reference to the resources here
 		std::unordered_map<SIZE_T, ID3D12Resource *> _depthstencil_resources_by_handle;
+#endif
+
+#if RESHADE_WIREFRAME
+		bool _wireframe_mode = false;
+		std::unordered_map<com_ptr<ID3D12PipelineState>, com_ptr<ID3D12PipelineState>> _wireframe_pipelineStates;
 #endif
 	};
 }

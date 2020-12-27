@@ -9,6 +9,7 @@
 #define IDR_IMGUI_VS                    105
 #define IDR_IMGUI_VS_SPIRV              106
 #define IDR_MIPMAP_CS                   107
+#define IDR_EFFECT_WIREFRAME            112
 #define IDR_LICENSE_GL3W                701
 #define IDR_LICENSE_IMGUI               702
 #define IDR_LICENSE_MINHOOK             703

@@ -39,6 +39,10 @@ namespace reshade::d3d11
 		void on_clear_depthstencil(UINT clear_flags, ID3D11DepthStencilView *dsv, bool rect_draw_call = false);
 #endif
 
+#if RESHADE_WIREFRAME
+		const bool get_wireframe_mode();
+#endif
+
 	protected:
 		draw_stats _stats;
 		ID3D11DeviceContext *_device_context = nullptr;
@@ -75,12 +79,20 @@ namespace reshade::d3d11
 			com_ptr<ID3D11Texture2D> override = nullptr);
 #endif
 
+#if RESHADE_WIREFRAME
+		void set_wireframe_mode(bool value);
+#endif
+
 	private:
 #if RESHADE_DEPTH
 		bool update_depthstencil_clear_texture(D3D11_TEXTURE2D_DESC desc);
 
 		draw_stats _previous_stats;
 		com_ptr<ID3D11Texture2D> _depthstencil_clear_texture;
+#endif
+
+#if RESHADE_WIREFRAME
+		bool _wireframe_mode = false;
 #endif
 	};
 }

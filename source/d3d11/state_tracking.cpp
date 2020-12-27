@@ -276,3 +276,15 @@ com_ptr<ID3D11Texture2D> reshade::d3d11::state_tracking_context::find_best_depth
 }
 #endif
 
+#if RESHADE_WIREFRAME
+void reshade::d3d11::state_tracking_context::set_wireframe_mode(bool value)
+{
+	_wireframe_mode = value;
+}
+
+const bool reshade::d3d11::state_tracking::get_wireframe_mode()
+{
+	return _context->_wireframe_mode;
+}
+#endif
+

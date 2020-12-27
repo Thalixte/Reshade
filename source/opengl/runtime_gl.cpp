@@ -290,6 +290,15 @@ void reshade::opengl::runtime_gl::on_present()
 	_vertices = _state_tracking.total_vertices();
 	_drawcalls = _state_tracking.total_drawcalls();
 
+#if RESHADE_WIREFRAME
+	if (wireframe_mode())
+	{
+		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+	}
+	else
+		glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+#endif
+
 	_app_state.capture(_compatibility_context);
 
 #if RESHADE_DEPTH

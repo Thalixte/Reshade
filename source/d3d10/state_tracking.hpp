@@ -50,6 +50,11 @@ namespace reshade::d3d10
 			com_ptr<ID3D10Texture2D> override = nullptr);
 #endif
 
+#if RESHADE_WIREFRAME
+		const bool get_wireframe_mode();
+		void set_wireframe_mode(bool value);
+#endif
+
 	private:
 		draw_stats _stats;
 		ID3D10Device *const _device;
@@ -62,6 +67,10 @@ namespace reshade::d3d10
 		bool _first_empty_stats = true;
 		com_ptr<ID3D10Texture2D> _depthstencil_clear_texture;
 		std::unordered_map<com_ptr<ID3D10Texture2D>, depthstencil_info> _counters_per_used_depth_texture;
+#endif
+
+#if RESHADE_WIREFRAME
+		bool _wireframe_mode = false;
 #endif
 	};
 }

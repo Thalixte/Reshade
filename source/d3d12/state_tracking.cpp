@@ -49,6 +49,15 @@ void reshade::d3d12::state_tracking_context::reset(bool release_resources)
 #else
 	UNREFERENCED_PARAMETER(release_resources);
 #endif
+
+#if RESHADE_WIREFRAME
+	if (release_resources)
+	{
+		_wireframe_pipelineStates.clear();
+	}
+#else
+	UNREFERENCED_PARAMETER(release_resources);
+#endif
 }
 
 void reshade::d3d12::state_tracking::merge(const state_tracking &source)
@@ -281,5 +290,85 @@ com_ptr<ID3D12Resource> reshade::d3d12::state_tracking_context::update_depth_tex
 	}
 
 	return _depthstencil_clear_texture;
+}
+#endif
+
+#if RESHADE_WIREFRAME
+void reshade::d3d12::state_tracking_context::set_wireframe_mode(bool value)
+{
+	_wireframe_mode = value;
+}
+
+const bool reshade::d3d12::state_tracking::get_wireframe_mode()
+{
+	return _context->_wireframe_mode;
+}
+
+HRESULT reshade::d3d12::state_tracking_context::on_create_pipelineState(const D3D12_PIPELINE_STATE_STREAM_DESC *pDesc, void **ppPipelineState)
+{
+	const std::lock_guard<std::mutex> lock(s_global_mutex);
+	D3D12_PIPELINE_STATE_STREAM_DESC newdesc = *pDesc;
+	D3D12_RASTERIZER_DESC &desc = static_cast<D3D12_GRAPHICS_PIPELINE_STATE_DESC *>(newdesc.pPipelineStateSubobjectStream)->RasterizerState;
+
+	com_ptr<ID3D12PipelineState> oldPipelineState = reinterpret_cast<ID3D12PipelineState *>(*ppPipelineState);
+	com_ptr<ID3D12PipelineState> wireframePipelineState;
+
+	if (desc.FillMode != D3D12_FILL_MODE_SOLID)
+	{
+		_wireframe_pipelineStates[oldPipelineState] = nullptr;
+		return S_OK;
+	}
+
+	desc.FillMode = D3D12_FILL_MODE_WIREFRAME;
+	desc.CullMode = D3D12_CULL_MODE_NONE;
+	desc.DepthClipEnable = false;
+	desc.FrontCounterClockwise = true;
+
+	HRESULT hr = static_cast<ID3D12Device2 *>(_device)->CreatePipelineState(&newdesc, IID_PPV_ARGS(&wireframePipelineState));
+
+	if (hr == S_OK)
+		_wireframe_pipelineStates[oldPipelineState] = wireframePipelineState;
+
+	return hr;
+}
+
+HRESULT reshade::d3d12::state_tracking_context::on_create_graphics_pipelineState(const D3D12_GRAPHICS_PIPELINE_STATE_DESC *pDesc, void **ppPipelineState)
+{
+	const std::lock_guard<std::mutex> lock(s_global_mutex);
+	D3D12_GRAPHICS_PIPELINE_STATE_DESC newdesc = *pDesc;
+	D3D12_RASTERIZER_DESC &desc = newdesc.RasterizerState;
+
+	com_ptr<ID3D12PipelineState> oldPipelineState = reinterpret_cast<ID3D12PipelineState *>(*ppPipelineState);
+	com_ptr<ID3D12PipelineState> wireframePipelineState;
+
+	if (desc.FillMode != D3D12_FILL_MODE_SOLID)
+	{
+		_wireframe_pipelineStates[oldPipelineState] = nullptr;
+		return S_OK;
+	}
+
+	newdesc.BlendState.AlphaToCoverageEnable = false;
+	desc.FillMode = D3D12_FILL_MODE_WIREFRAME;
+	desc.CullMode = D3D12_CULL_MODE_NONE;
+	desc.DepthClipEnable = false;
+	desc.FrontCounterClockwise = true;
+
+	HRESULT hr = static_cast<ID3D12Device2 *>(_device)->CreateGraphicsPipelineState(&newdesc, IID_PPV_ARGS(&wireframePipelineState));
+
+	if (hr == S_OK)
+		_wireframe_pipelineStates[oldPipelineState] = wireframePipelineState;
+
+	return hr;
+}
+
+void reshade::d3d12::state_tracking::on_set_pipelineState(ID3D12PipelineState **ppPipelineState)
+{
+	if (!_context->_wireframe_mode)
+		return;
+
+	const auto it = _context->_wireframe_pipelineStates.find(*ppPipelineState);
+	if (it != _context->_wireframe_pipelineStates.end())
+		if (it->second != nullptr)
+			*ppPipelineState = it->second.get();
 }
 #endif

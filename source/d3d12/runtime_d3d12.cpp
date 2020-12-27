@@ -358,6 +358,10 @@ void reshade::d3d12::runtime_d3d12::on_present()
 	_vertices = _state_tracking.total_vertices();
 	_drawcalls = _state_tracking.total_drawcalls();
 
+#if RESHADE_WIREFRAME
+	_state_tracking.set_wireframe_mode(wireframe_mode());
+#endif
+
 	// There is no swap chain in d3d12on7
 	if (_swapchain != nullptr)
 		_swap_index = _swapchain->GetCurrentBackBufferIndex();

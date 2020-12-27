@@ -43,6 +43,12 @@ static lockfree_table<VkFramebuffer, std::vector<VkImage>, 4096> s_framebuffer_d
 static lockfree_table<VkCommandBuffer, command_buffer_data, 4096> s_command_buffer_data;
 static lockfree_table<VkRenderPass, std::vector<render_pass_data>, 4096> s_renderpass_data;
 
+#if RESHADE_WIREFRAME
+static lockfree_table<VkPipeline, VkPipeline, 12288> s_wireframe_pipelines;
+
+static bool _wireframe_mode;
+#endif
+
 #define GET_DEVICE_DISPATCH_PTR(name, object) \
 	PFN_vk##name trampoline = s_device_dispatch.at(dispatch_key_from_handle(object)).dispatch_table.name; \
 	assert(trampoline != nullptr);
@@ -177,6 +183,10 @@ VkResult VKAPI_CALL vkCreateDevice(VkPhysicalDevice physicalDevice, const VkDevi
 		// Enable features that ReShade requires
 		enabled_features.shaderImageGatherExtended = true;
 		enabled_features.shaderStorageImageWriteWithoutFormat = true;
+
+#if RESHADE_WIREFRAME
+		enabled_features.fillModeNonSolid = VK_TRUE;
+#endif
 
 		// Enable extensions that ReShade requires
 		add_extension(VK_KHR_PUSH_DESCRIPTOR_EXTENSION_NAME, false); // This is optional, see imgui code in 'runtime_vk'
@@ -340,6 +350,10 @@ void     VKAPI_CALL vkDestroyDevice(VkDevice device, const VkAllocationCallbacks
 	LOG(INFO) << "Redirecting " << "vkDestroyDevice" << '(' << "device = " << device << ", pAllocator = " << pAllocator << ')' << " ...";
 
 	s_command_buffer_data.clear(); // Reset all command buffer data
+
+#if RESHADE_WIREFRAME
+	s_wireframe_pipelines.clear(); // Reset all wireframe pipelines
+#endif
 
 	// Get function pointer before removing it next
 	GET_DEVICE_DISPATCH_PTR(DestroyDevice, device);
@@ -535,7 +549,13 @@ VkResult VKAPI_CALL vkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR *pPr
 	{
 		if (const auto runtime = s_vulkan_runtimes.at(pPresentInfo->pSwapchains[i]);
 			runtime != nullptr)
+		{
+#if RESHADE_WIREFRAME
+			_wireframe_mode = runtime->wireframe_mode();
+#endif
+
 			runtime->on_present(queue, pPresentInfo->pImageIndices[i], wait_semaphores);
+		}
 	}
 
 	device_data.state.reset();
@@ -844,6 +864,67 @@ void     VKAPI_CALL vkCmdDrawIndexed(VkCommandBuffer commandBuffer, uint32_t ind
 	data.state.on_draw(indexCount * instanceCount);
 }
 
+#if RESHADE_WIREFRAME
+VkResult VKAPI_CALL vkCreateGraphicsPipelines(VkDevice device, VkPipelineCache pipelineCache, uint32_t createInfoCount, const VkGraphicsPipelineCreateInfo *pCreateInfos, const VkAllocationCallbacks *pAllocator, VkPipeline *pPipelines)
+{
+	GET_DEVICE_DISPATCH_PTR(CreateGraphicsPipelines, device);
+
+	VkResult result = trampoline(device, pipelineCache, createInfoCount, pCreateInfos, pAllocator, pPipelines);
+	VkGraphicsPipelineCreateInfo createInfos = *pCreateInfos;
+	VkPipelineRasterizationStateCreateInfo rasterisationInfo;
+
+	for (uint32_t i = 0; i < createInfoCount; ++i)
+	{
+		VkPipeline wireframePipeline;
+
+		createInfos = *pCreateInfos;
+
+		rasterisationInfo = *pCreateInfos->pRasterizationState;
+
+		if (rasterisationInfo.polygonMode != VK_POLYGON_MODE_FILL)
+		{
+			s_wireframe_pipelines.emplace(pPipelines[i], VK_NULL_HANDLE);
+			continue;
+		}
+
+		rasterisationInfo.cullMode = VK_CULL_MODE_BACK_BIT;
+		rasterisationInfo.polygonMode = VK_POLYGON_MODE_LINE;
+		rasterisationInfo.lineWidth = 1.0f;
+
+		createInfos.pRasterizationState = &rasterisationInfo;
+
+		result = trampoline(device, pipelineCache, createInfoCount, &createInfos, pAllocator, &wireframePipeline);
+
+		s_wireframe_pipelines.emplace(pPipelines[i], wireframePipeline);
+	}
+
+	return result;
+}
+
+void VKAPI_CALL vkDestroyPipeline(VkDevice device, VkPipeline pipeline, const VkAllocationCallbacks *pAllocator)
+{
+	s_wireframe_pipelines.erase(pipeline);
+
+	GET_DEVICE_DISPATCH_PTR(DestroyPipeline, device);
+	trampoline(device, pipeline, pAllocator);
+}
+
+void VKAPI_CALL vkCmdBindPipeline(VkCommandBuffer commandBuffer, VkPipelineBindPoint pipelineBindPoint, VkPipeline pipeline)
+{
+	GET_DEVICE_DISPATCH_PTR(CmdBindPipeline, commandBuffer);
+
+	VkPipeline usedPipeline = pipeline;
+
+	if (pipelineBindPoint == VK_PIPELINE_BIND_POINT_GRAPHICS && _wireframe_mode == true) {
+		VkPipeline wireframePipeline = s_wireframe_pipelines.at(pipeline);
+		if (wireframePipeline != VK_NULL_HANDLE)
+			usedPipeline = wireframePipeline;
+	}
+
+	trampoline(commandBuffer, pipelineBindPoint, usedPipeline);
+}
+#endif
+
 VK_LAYER_EXPORT PFN_vkVoidFunction VKAPI_CALL vkGetDeviceProcAddr(VkDevice device, const char *pName)
 {
 #define CHECK_DEVICE_PROC(name) \
@@ -880,6 +961,12 @@ VK_LAYER_EXPORT PFN_vkVoidFunction VKAPI_CALL vkGetDeviceProcAddr(VkDevice devic
 	CHECK_DEVICE_PROC(CmdExecuteCommands);
 	CHECK_DEVICE_PROC(CmdDraw);
 	CHECK_DEVICE_PROC(CmdDrawIndexed);
+
+#if RESHADE_WIREFRAME
+	CHECK_DEVICE_PROC(CreateGraphicsPipelines);
+	CHECK_DEVICE_PROC(DestroyPipeline);
+	CHECK_DEVICE_PROC(CmdBindPipeline);
+#endif
 
 	// Need to self-intercept as well, since some layers rely on this (e.g. Steam overlay)
 	// See https://github.com/KhronosGroup/Vulkan-Loader/blob/master/loader/LoaderAndLayerInterface.md#layer-conventions-and-rules

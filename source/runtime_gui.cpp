@@ -589,6 +589,38 @@ void reshade::runtime::draw_gui()
 
 	ImVec2 viewport_offset = ImVec2(0, 0);
 
+#if RESHADE_WIREFRAME
+	// Create ImGui widgets and windows
+	if (_wireframe_mode_warmup_step)
+	{
+		ImGui::SetNextWindowPos(ImVec2(10, 10));
+		ImGui::SetNextWindowSize(ImVec2(imgui_io.DisplaySize.x - 20.0f, 0.0f));
+		ImGui::PushStyleVar(ImGuiStyleVar_Alpha, 1.0f);
+		ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(0.862745f, 0.862745f, 0.862745f, 1.0f));
+		ImGui::PushStyleColor(ImGuiCol_WindowBg, ImVec4(0.117647f, 0.117647f, 0.117647f, 0.7f));
+		ImGui::Begin("Splash Screen", nullptr,
+			ImGuiWindowFlags_NoDecoration |
+			ImGuiWindowFlags_NoNav |
+			ImGuiWindowFlags_NoMove |
+			ImGuiWindowFlags_NoInputs |
+			ImGuiWindowFlags_NoSavedSettings |
+			ImGuiWindowFlags_NoDocking |
+			ImGuiWindowFlags_NoFocusOnAppearing);
+
+		ImGui::TextColored(COLOR_YELLOW,
+			"Wireframe mode is launching...");
+		ImGui::TextColored(COLOR_YELLOW,
+			"It will be available in %zu seconds",
+			_wireframe_mode_warmup_delay - _wireframe_mode_warmup_remaining_time.count());
+
+		viewport_offset.y += ImGui::GetWindowHeight() + 10; // Add small space between windows
+
+		ImGui::End();
+		ImGui::PopStyleColor(2);
+		ImGui::PopStyleVar();
+	}
+#endif
+
 	// Create ImGui widgets and windows
 	if (show_splash)
 	{
@@ -1356,6 +1388,18 @@ void reshade::runtime::draw_gui_settings()
 			}
 		}
 	}
+
+#if RESHADE_WIREFRAME
+	if (ImGui::CollapsingHeader("Wireframe", ImGuiTreeNodeFlags_DefaultOpen))
+	{
+		_ignore_shortcuts |= ImGui::IsItemActive();
+		modified |= widgets::key_input_box("Wireframe mode Toggle Key", _wireframe_key_data, *_input);
+		_ignore_shortcuts |= ImGui::IsItemActive();
+		modified |= ImGui::SliderInt("Wireframe warmup delay (sec)", reinterpret_cast<int *>(&_wireframe_mode_warmup_delay), 0, 300);
+		if (ImGui::IsItemHovered())
+			ImGui::SetTooltip("Add a warmup delay for wireframe activation.\nThis is necessary in some games (especially in Doom series), in order to let the virtual texture generation process to finish correctly.");
+	}
+#endif
 
 	if (ImGui::CollapsingHeader("Screenshots", ImGuiTreeNodeFlags_DefaultOpen))
 	{

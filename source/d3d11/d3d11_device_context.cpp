@@ -290,6 +290,14 @@ void    STDMETHODCALLTYPE D3D11DeviceContext::DispatchIndirect(ID3D11Buffer *pBu
 }
 void    STDMETHODCALLTYPE D3D11DeviceContext::RSSetState(ID3D11RasterizerState *pRasterizerState)
 {
+#if RESHADE_WIREFRAME
+	if (_state.get_wireframe_mode() == true)
+	{
+		_orig->RSSetState(_device->_wireframe_rasterizer);
+		return;
+	}
+#endif
+
 	_orig->RSSetState(pRasterizerState);
 }
 void    STDMETHODCALLTYPE D3D11DeviceContext::RSSetViewports(UINT NumViewports, const D3D11_VIEWPORT *pViewports)

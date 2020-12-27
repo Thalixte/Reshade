@@ -315,7 +315,18 @@ HRESULT STDMETHODCALLTYPE D3D11Device::CreateDepthStencilState(const D3D11_DEPTH
 }
 HRESULT STDMETHODCALLTYPE D3D11Device::CreateRasterizerState(const D3D11_RASTERIZER_DESC *pRasterizerDesc, ID3D11RasterizerState **ppRasterizerState)
 {
-	return _orig->CreateRasterizerState(pRasterizerDesc, ppRasterizerState);
+	HRESULT hr = _orig->CreateRasterizerState(pRasterizerDesc, ppRasterizerState);
+
+#if RESHADE_WIREFRAME
+	// Create wireframe rasterizer state
+	D3D11_RASTERIZER_DESC desc = {};
+	desc.FillMode = D3D11_FILL_WIREFRAME;
+	desc.CullMode = D3D11_CULL_NONE;
+	desc.DepthClipEnable = TRUE;
+	hr = _orig->CreateRasterizerState(&desc, &_wireframe_rasterizer);
+#endif
+
+	return hr;
 }
 HRESULT STDMETHODCALLTYPE D3D11Device::CreateSamplerState(const D3D11_SAMPLER_DESC *pSamplerDesc, ID3D11SamplerState **ppSamplerState)
 {
