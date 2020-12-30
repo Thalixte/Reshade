@@ -893,8 +893,6 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 			}
 		}
 
-		Sleep(10000);
-
 		hooks::register_module(L"user32.dll");
 		hooks::register_module(L"ws2_32.dll");
 
