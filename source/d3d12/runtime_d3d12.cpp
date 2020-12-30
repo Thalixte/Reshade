@@ -111,6 +111,7 @@ reshade::d3d12::runtime_d3d12::runtime_d3d12(ID3D12Device *device, ID3D12Command
 #endif
 #if RESHADE_DEPTH
 	subscribe_to_load_config([this](const ini_file &config) {
+		config.get("D3D12", "SecondBestDepthBuffer", _state_tracking.second_best_depth_buffer);
 		config.get("D3D12", "DepthCopyBeforeClears", _state_tracking.preserve_depth_buffers);
 		config.get("D3D12", "DepthCopyAtClearIndex", _state_tracking.depthstencil_clear_index.second);
 		config.get("D3D12", "UseAspectRatioHeuristics", _state_tracking.use_aspect_ratio_heuristics);
@@ -119,6 +120,7 @@ reshade::d3d12::runtime_d3d12::runtime_d3d12(ID3D12Device *device, ID3D12Command
 			_state_tracking.depthstencil_clear_index.second  = 0;
 	});
 	subscribe_to_save_config([this](ini_file &config) {
+		config.set("D3D12", "SecondBestDepthBuffer", _state_tracking.second_best_depth_buffer);
 		config.set("D3D12", "DepthCopyBeforeClears", _state_tracking.preserve_depth_buffers);
 		config.set("D3D12", "DepthCopyAtClearIndex", _state_tracking.depthstencil_clear_index.second);
 		config.set("D3D12", "UseAspectRatioHeuristics", _state_tracking.use_aspect_ratio_heuristics);
@@ -1786,6 +1788,7 @@ void reshade::d3d12::runtime_d3d12::draw_depth_debug_menu()
 	}
 
 	bool modified = false;
+	modified |= ImGui::Checkbox("Take the second best depth buffer for automatic detection (fix for CyberPunk 2077)", &_state_tracking.second_best_depth_buffer);
 	modified |= ImGui::Checkbox("Use aspect ratio heuristics", &_state_tracking.use_aspect_ratio_heuristics);
 	modified |= ImGui::Checkbox("Copy depth buffer before clear operations", &_state_tracking.preserve_depth_buffers);
 

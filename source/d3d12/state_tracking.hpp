@@ -73,6 +73,7 @@ namespace reshade::d3d12
 		void on_create_dsv(ID3D12Resource *dsv_texture, D3D12_CPU_DESCRIPTOR_HANDLE handle);
 
 		// Detection Settings
+		bool second_best_depth_buffer = false;
 		bool preserve_depth_buffers = false;
 		bool use_aspect_ratio_heuristics = true;
 		std::pair<ID3D12Resource *, UINT> depthstencil_clear_index = { nullptr, 0 };
