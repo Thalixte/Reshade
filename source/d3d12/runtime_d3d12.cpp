@@ -4,10 +4,10 @@
  */
 
 #include "dll_log.hpp"
+#include "dll_config.hpp"
 #include "dll_resources.hpp"
 #include "hook_manager.hpp"
 #include "runtime_d3d12.hpp"
-#include "runtime_config.hpp"
 #include "runtime_objects.hpp"
 #include "dxgi/format_utils.hpp"
 #include <imgui.h>
@@ -417,7 +417,7 @@ void reshade::d3d12::runtime_d3d12::on_present(ID3D12Resource *source, HWND hwnd
 
 		if (!on_init(swap_desc))
 		{
-			LOG(ERROR) << "Failed to initialize Direct3D 12 runtime environment on runtime " << this << '.';
+			LOG(ERROR) << "Failed to initialize Direct3D 12 runtime environment on runtime " << this << '!';
 			return;
 		}
 	}
@@ -453,9 +453,9 @@ bool reshade::d3d12::runtime_d3d12::capture_screenshot(uint8_t *buffer) const
 	if (_color_bit_depth != 8 && _color_bit_depth != 10)
 	{
 		if (const char *format_string = format_to_string(_backbuffer_format); format_string != nullptr)
-			LOG(ERROR) << "Screenshots are not supported for back buffer format " << format_string << '.';
+			LOG(ERROR) << "Screenshots are not supported for back buffer format " << format_string << '!';
 		else
-			LOG(ERROR) << "Screenshots are not supported for back buffer format " << _backbuffer_format << '.';
+			LOG(ERROR) << "Screenshots are not supported for back buffer format " << _backbuffer_format << '!';
 		return false;
 	}
 
@@ -551,7 +551,7 @@ bool reshade::d3d12::runtime_d3d12::init_effect(size_t index)
 
 	if (_d3d_compiler == nullptr)
 	{
-		LOG(ERROR) << "Unable to load HLSL compiler (\"d3dcompiler_47.dll\").";
+		LOG(ERROR) << "Unable to load HLSL compiler (\"d3dcompiler_47.dll\")!";
 		return false;
 	}
 

@@ -7,9 +7,9 @@
 
 #include "version.h"
 #include "dll_log.hpp"
+#include "dll_config.hpp"
 #include "dll_resources.hpp"
 #include "runtime.hpp"
-#include "runtime_config.hpp"
 #include "runtime_objects.hpp"
 #include "input.hpp"
 #include "imgui_widgets.hpp"
@@ -1381,7 +1381,7 @@ void reshade::runtime::draw_gui_settings()
 
 				const std::filesystem::path filename = entry.path().filename();
 				const std::filesystem::path extension = entry.path().extension();
-				if (filename.native().compare(0, 8, L"reshade-") != 0 || (extension != ".i" && extension != ".cso" && extension != ".asm"))
+				if (filename.native().compare(0, 8, L"reshade-") != 0 || (extension != L".i" && extension != L".cso" && extension != L".asm"))
 					continue;
 
 				DeleteFileW(entry.path().c_str());

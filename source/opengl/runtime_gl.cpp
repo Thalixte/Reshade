@@ -4,8 +4,8 @@
  */
 
 #include "dll_log.hpp"
+#include "dll_config.hpp"
 #include "runtime_gl.hpp"
-#include "runtime_config.hpp"
 #include "runtime_objects.hpp"
 #include <imgui.h>
 
@@ -665,7 +665,7 @@ bool reshade::opengl::runtime_gl::init_effect(size_t index)
 
 				effect.errors += log.data();
 
-				LOG(ERROR) << "Failed to link program for pass " << pass_index << " in technique '" << technique.name << "'.";
+				LOG(ERROR) << "Failed to link program for pass " << pass_index << " in technique '" << technique.name << "'!";
 				success = false;
 				break;
 			}
@@ -1503,7 +1503,7 @@ void reshade::opengl::runtime_gl::update_depth_texture_bindings(state_tracking::
 				_depth_source_width = _depth_source_height = 0;
 				_depth_source_format = GL_NONE;
 
-				LOG(ERROR) << "Failed to create depth texture of format " << std::hex << info.format << " with error code " << err << std::dec << '.';
+				LOG(ERROR) << "Failed to create depth texture of format " << std::hex << info.format << " with error code " << err << std::dec << '!';
 				return;
 			}
 

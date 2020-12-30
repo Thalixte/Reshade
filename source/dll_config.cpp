@@ -3,15 +3,14 @@
  * License: https://github.com/crosire/reshade#license
  */
 
-#include "runtime_config.hpp"
+#include "dll_config.hpp"
 #include <cassert>
 #include <fstream>
 #include <sstream>
 
 static std::unordered_map<std::wstring, reshade::ini_file> g_ini_cache;
 
-reshade::ini_file::ini_file(const std::filesystem::path &path)
-	: _path(path)
+reshade::ini_file::ini_file(const std::filesystem::path &path) : _path(path)
 {
 	load();
 }

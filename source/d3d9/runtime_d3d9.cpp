@@ -4,8 +4,8 @@
  */
 
 #include "dll_log.hpp"
+#include "dll_config.hpp"
 #include "runtime_d3d9.hpp"
-#include "runtime_config.hpp"
 #include "runtime_objects.hpp"
 #include <imgui.h>
 #include <imgui_internal.h>
@@ -280,7 +280,7 @@ bool reshade::d3d9::runtime_d3d9::capture_screenshot(uint8_t *buffer) const
 {
 	if (_color_bit_depth != 8 && _color_bit_depth != 10)
 	{
-		LOG(ERROR) << "Screenshots are not supported for back buffer format " << _backbuffer_format << '.';
+		LOG(ERROR) << "Screenshots are not supported for back buffer format " << _backbuffer_format << '!';
 		return false;
 	}
 
@@ -345,7 +345,7 @@ bool reshade::d3d9::runtime_d3d9::init_effect(size_t index)
 
 	if (_d3d_compiler == nullptr)
 	{
-		LOG(ERROR) << "Unable to load HLSL compiler (\"d3dcompiler_47.dll\")." << " Make sure you have the DirectX end-user runtime (June 2010) installed or a newer version of the library in the application directory.";
+		LOG(ERROR) << "Unable to load HLSL compiler (\"d3dcompiler_47.dll\")!" << " Make sure you have the DirectX end-user runtime (June 2010) installed or a newer version of the library in the application directory.";
 		return false;
 	}
 

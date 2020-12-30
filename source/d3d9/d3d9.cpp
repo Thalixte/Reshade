@@ -4,11 +4,11 @@
  */
 
 #include "dll_log.hpp"
+#include "dll_config.hpp"
 #include "hook_manager.hpp"
 #include "d3d9_device.hpp"
 #include "d3d9_swapchain.hpp"
 #include "runtime_d3d9.hpp"
-#include "runtime_config.hpp"
 
 // These are defined in d3d9.h, but we want to use them as function names below
 #undef IDirect3D9_CreateDevice
@@ -148,7 +148,7 @@ static void init_runtime_d3d(T *&device, D3DDEVTYPE device_type, D3DPRESENT_PARA
 
 	const auto runtime = std::make_shared<reshade::d3d9::runtime_d3d9>(device, swapchain, &device_proxy->_state);
 	if (!runtime->on_init(pp))
-		LOG(ERROR) << "Failed to initialize Direct3D 9 runtime environment on runtime " << runtime.get() << '.';
+		LOG(ERROR) << "Failed to initialize Direct3D 9 runtime environment on runtime " << runtime.get() << '!';
 
 	device_proxy->_implicit_swapchain = new Direct3DSwapChain9(device_proxy, swapchain, runtime);
 
