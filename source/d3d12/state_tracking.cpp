@@ -229,8 +229,11 @@ com_ptr<ID3D12Resource> reshade::d3d12::state_tracking_context::update_depth_tex
 	}
 	else
 	{
-		for (auto &[dsv_texture, snapshot] : _counters_per_used_depth_texture)
+		std::vector<std::pair<ID3D12Resource *, state_tracking::depthstencil_info>> stats_buffers;
+		stats_buffers.reserve(_counters_per_used_depth_texture.size());
+		for (const auto &[dsv_texture, snapshot] : _counters_per_used_depth_texture)
 		{
+
 			if (snapshot.total_stats.drawcalls == 0)
 				continue; // Skip unused
 
@@ -253,14 +256,35 @@ com_ptr<ID3D12Resource> reshade::d3d12::state_tracking_context::update_depth_tex
 					continue; // Not a good fit
 			}
 
-			if (!_has_indirect_drawcalls ?
-				// Choose snapshot with the most vertices, since that is likely to contain the main scene
-				snapshot.total_stats.vertices > best_snapshot.total_stats.vertices :
-				// Or check draw calls, since vertices may not be accurate if application is using indirect draw calls
-				snapshot.total_stats.drawcalls > best_snapshot.total_stats.drawcalls)
+			stats_buffers.push_back({ dsv_texture.get(), snapshot });
+		}
+
+		std::vector<std::pair<ID3D12Resource *, state_tracking::depthstencil_info>> sorted_buffers;
+		sorted_buffers.reserve(stats_buffers.size());
+
+		for (const auto &[dsv_texture, snapshot] : stats_buffers)
+			sorted_buffers.push_back({ dsv_texture, snapshot });
+
+		if (!_has_indirect_drawcalls)
+			std::sort(sorted_buffers.begin(), sorted_buffers.end(), [](const auto &a, const auto &b) { return a.second.total_stats.vertices > b.second.total_stats.vertices; });
+		else
+			std::sort(sorted_buffers.begin(), sorted_buffers.end(), [](const auto &a, const auto &b) { return a.second.total_stats.drawcalls > b.second.total_stats.drawcalls; });
+
+		if (!sorted_buffers.empty())
+		{
+			best_match = sorted_buffers.front().first;
+			best_snapshot = sorted_buffers.front().second;
+
+			if (second_best_depth_buffer && sorted_buffers.size() > 1)
 			{
-				best_match = dsv_texture;
-				best_snapshot = snapshot;
+				const D3D12_RESOURCE_DESC best_desc = best_match->GetDesc();
+				const D3D12_RESOURCE_DESC candidate_desc = sorted_buffers.at(1).first->GetDesc();
+
+				if (best_desc.Width == candidate_desc.Width && best_desc.Height == candidate_desc.Height)
+				{
+					best_match = sorted_buffers.at(1).first;
+					best_snapshot = sorted_buffers.at(1).second;
+				}
 			}
 		}
 	}
@@ -276,8 +300,18 @@ com_ptr<ID3D12Resource> reshade::d3d12::state_tracking_context::update_depth_tex
 	}
 	else
 	{
-		// TODO: Fix resource state transition
+		D3D12_RESOURCE_BARRIER transition = { D3D12_RESOURCE_BARRIER_TYPE_TRANSITION };
+		transition.Transition.pResource = best_match.get();
+		transition.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+		transition.Transition.StateBefore = D3D12_RESOURCE_STATE_DEPTH_WRITE; // A resource has to be in this state for 'ID3D12GraphicsCommandList::ClearDepthStencilView', so can assume it here
+		transition.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+		list->ResourceBarrier(1, &transition);
+
+		// Do not need to insert a resource barrier for '_depthstencil_clear_texture' here, since it is in D3D12_RESOURCE_STATE_COMMON, which is implicitly promoted to D3D12_RESOURCE_STATE_COPY_DEST
 		list->CopyResource(_context->_depthstencil_clear_texture.get(), best_match.get());
+
+		std::swap(transition.Transition.StateBefore, transition.Transition.StateAfter);
+		list->ResourceBarrier(1, &transition);
 	}
 
 	return _depthstencil_clear_texture;
