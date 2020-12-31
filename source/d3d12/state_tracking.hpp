@@ -54,6 +54,7 @@ namespace reshade::d3d12
 		bool _first_empty_stats = false;
 		bool _has_indirect_drawcalls = false;
 		std::unordered_map<com_ptr<ID3D12Resource>, depthstencil_info> _counters_per_used_depth_texture;
+		std::vector<std::pair<ID3D12Resource *, state_tracking::depthstencil_info>> _sorted_depth_buffers;
 #endif
 	};
 
@@ -79,6 +80,7 @@ namespace reshade::d3d12
 		std::pair<ID3D12Resource *, UINT> depthstencil_clear_index = { nullptr, 0 };
 
 		const auto &depth_buffer_counters() const { return _counters_per_used_depth_texture; }
+		const auto &sorted_depth_buffer_counters() const { return _sorted_depth_buffers; }
 
 		com_ptr<ID3D12Resource> update_depth_texture(ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *list,
 			UINT width, UINT height,
