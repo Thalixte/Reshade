@@ -27,6 +27,7 @@ void reshade::d3d12::state_tracking::reset()
 	_first_empty_stats = true;
 	_has_indirect_drawcalls = false;
 	_counters_per_used_depth_texture.clear();
+	_sorted_depth_buffers.clear();
 #endif
 }
 void reshade::d3d12::state_tracking_context::reset(bool release_resources)
@@ -223,67 +224,72 @@ com_ptr<ID3D12Resource> reshade::d3d12::state_tracking_context::update_depth_tex
 {
 	depthstencil_info best_snapshot;
 	com_ptr<ID3D12Resource> best_match = override;
+
+	std::vector<std::pair<ID3D12Resource *, state_tracking::depthstencil_info>> stats_buffers;
+	for (const auto &[dsv_texture, snapshot] : _counters_per_used_depth_texture)
+	{
+		if (snapshot.total_stats.drawcalls == 0)
+			continue; // Skip unused
+
+		const D3D12_RESOURCE_DESC desc = dsv_texture->GetDesc();
+		assert((desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) != 0);
+
+		if (desc.SampleDesc.Count > 1)
+			continue; // Ignore MSAA textures, since they would need to be resolved first
+
+		if (use_aspect_ratio_heuristics)
+		{
+			assert(width != 0 && height != 0);
+			const float w = static_cast<float>(width);
+			const float w_ratio = w / desc.Width;
+			const float h = static_cast<float>(height);
+			const float h_ratio = h / desc.Height;
+			const float aspect_ratio = (w / h) - (static_cast<float>(desc.Width) / desc.Height);
+
+			if (std::fabs(aspect_ratio) > 0.1f || w_ratio > 1.85f || h_ratio > 1.85f || w_ratio < 0.5f || h_ratio < 0.5f)
+				continue; // Not a good fit
+		}
+
+		stats_buffers.push_back({ dsv_texture.get(), snapshot });
+	}
+
+	_sorted_depth_buffers.reserve(stats_buffers.size());
+
+	for (const auto &[dsv_texture, snapshot] : stats_buffers)
+		_sorted_depth_buffers.push_back({ dsv_texture, snapshot });
+
+	if (!_has_indirect_drawcalls || second_best_depth_buffer)
+		std::sort(_sorted_depth_buffers.begin(), _sorted_depth_buffers.end(), [](const auto &a, const auto &b) { return a.second.total_stats.vertices > b.second.total_stats.vertices; });
+	else
+		std::sort(_sorted_depth_buffers.begin(), _sorted_depth_buffers.end(), [](const auto &a, const auto &b) { return a.second.total_stats.drawcalls > b.second.total_stats.drawcalls; });
+
 	if (best_match != nullptr)
 	{
 		best_snapshot = _counters_per_used_depth_texture[best_match];
 	}
 	else
 	{
-		std::vector<std::pair<ID3D12Resource *, state_tracking::depthstencil_info>> stats_buffers;
-		stats_buffers.reserve(_counters_per_used_depth_texture.size());
-		for (const auto &[dsv_texture, snapshot] : _counters_per_used_depth_texture)
+		if (!_sorted_depth_buffers.empty())
 		{
+			best_match = _sorted_depth_buffers.front().first;
+			best_snapshot = _sorted_depth_buffers.front().second;
 
-			if (snapshot.total_stats.drawcalls == 0)
-				continue; // Skip unused
-
-			const D3D12_RESOURCE_DESC desc = dsv_texture->GetDesc();
-			assert((desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) != 0);
-
-			if (desc.SampleDesc.Count > 1)
-				continue; // Ignore MSAA textures, since they would need to be resolved first
-
-			if (use_aspect_ratio_heuristics)
+			if (second_best_depth_buffer && _sorted_depth_buffers.size() > 1)
 			{
-				assert(width != 0 && height != 0);
-				const float w = static_cast<float>(width);
-				const float w_ratio = w / desc.Width;
-				const float h = static_cast<float>(height);
-				const float h_ratio = h / desc.Height;
-				const float aspect_ratio = (w / h) - (static_cast<float>(desc.Width) / desc.Height);
-
-				if (std::fabs(aspect_ratio) > 0.1f || w_ratio > 1.85f || h_ratio > 1.85f || w_ratio < 0.5f || h_ratio < 0.5f)
-					continue; // Not a good fit
-			}
-
-			stats_buffers.push_back({ dsv_texture.get(), snapshot });
-		}
-
-		std::vector<std::pair<ID3D12Resource *, state_tracking::depthstencil_info>> sorted_buffers;
-		sorted_buffers.reserve(stats_buffers.size());
-
-		for (const auto &[dsv_texture, snapshot] : stats_buffers)
-			sorted_buffers.push_back({ dsv_texture, snapshot });
-
-		if (!_has_indirect_drawcalls)
-			std::sort(sorted_buffers.begin(), sorted_buffers.end(), [](const auto &a, const auto &b) { return a.second.total_stats.vertices > b.second.total_stats.vertices; });
-		else
-			std::sort(sorted_buffers.begin(), sorted_buffers.end(), [](const auto &a, const auto &b) { return a.second.total_stats.drawcalls > b.second.total_stats.drawcalls; });
-
-		if (!sorted_buffers.empty())
-		{
-			best_match = sorted_buffers.front().first;
-			best_snapshot = sorted_buffers.front().second;
-
-			if (second_best_depth_buffer && sorted_buffers.size() > 1)
-			{
-				const D3D12_RESOURCE_DESC best_desc = best_match->GetDesc();
-				const D3D12_RESOURCE_DESC candidate_desc = sorted_buffers.at(1).first->GetDesc();
-
-				if (best_desc.Width == candidate_desc.Width && best_desc.Height == candidate_desc.Height)
+				for (const auto &[dsv_texture, snapshot] : _sorted_depth_buffers)
 				{
-					best_match = sorted_buffers.at(1).first;
-					best_snapshot = sorted_buffers.at(1).second;
+					if (dsv_texture == best_match)
+						continue;
+
+					const D3D12_RESOURCE_DESC best_desc = best_match->GetDesc();
+					const D3D12_RESOURCE_DESC candidate_desc = dsv_texture->GetDesc();
+
+					if (best_desc.Width != candidate_desc.Width || best_desc.Height != candidate_desc.Height)
+						continue;
+
+					best_match = dsv_texture;
+					best_snapshot = snapshot;
+					break;
 				}
 			}
 		}
