@@ -551,7 +551,7 @@ bool reshade::runtime::load_effect(const std::filesystem::path &source_file, con
 				{
 					effect.errors += "warning: " + texture.unique_name + ": another effect (";
 					effect.errors += _effects[existing_texture->effect_index].source_file.filename().u8string();
-					effect.errors += ") already created a texture with another image file\n";
+					effect.errors += ") already created a texture with a different image file\n";
 				}
 
 				if (existing_texture->semantic == "COLOR" && _color_bit_depth != 8)
@@ -576,9 +576,9 @@ bool reshade::runtime::load_effect(const std::filesystem::path &source_file, con
 
 			if (texture.annotation_as_int("pooled") && texture.semantic.empty())
 			{
-				// Try to find another pooled texture to share with
+				// Try to find another pooled texture to share with (and do not share within the same effect)
 				if (const auto existing_texture = std::find_if(_textures.begin(), _textures.end(),
-					[&texture](const auto &item) { return item.annotation_as_int("pooled") && item.matches_description(texture); });
+					[&texture](const auto &item) { return item.annotation_as_int("pooled") && item.effect_index != texture.effect_index && item.matches_description(texture); });
 					existing_texture != _textures.end())
 				{
 					// Overwrite referenced texture in samplers with the pooled one
@@ -686,7 +686,8 @@ void reshade::runtime::load_effects()
 
 	// Keep track of the spawned threads, so the runtime cannot be destroyed while they are still running
 	for (size_t n = 0; n < num_splits; ++n)
-		_worker_threads.emplace_back([this, effect_files, offset, num_splits, n, &preset]() {
+		// Create copy of preset instead of reference, so it stays valid even if 'ini_file::load_cache' is called while effects are still being loaded
+		_worker_threads.emplace_back([this, effect_files, offset, num_splits, n, preset]() {
 			// Abort loading when initialization state changes (indicating that 'on_reset' was called in the meantime)
 			for (size_t i = 0; i < effect_files.size() && _is_initialized; ++i)
 				if (i * num_splits / effect_files.size() == n)
@@ -790,6 +791,7 @@ void reshade::runtime::unload_effect(size_t effect_index)
 			return tech.effect_index == effect_index;
 		}), _techniques.end());
 
+	_effects[effect_index].rendering = 0;
 	// Do not clear effect here, since it is common to be re-used immediately
 }
 void reshade::runtime::unload_effects()

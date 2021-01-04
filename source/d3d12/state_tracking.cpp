@@ -27,7 +27,6 @@ void reshade::d3d12::state_tracking::reset()
 	_first_empty_stats = true;
 	_has_indirect_drawcalls = false;
 	_counters_per_used_depth_texture.clear();
-	_sorted_depth_buffers.clear();
 #endif
 }
 void reshade::d3d12::state_tracking_context::reset(bool release_resources)
@@ -54,6 +53,11 @@ void reshade::d3d12::state_tracking_context::reset(bool release_resources)
 
 void reshade::d3d12::state_tracking::merge(const state_tracking &source)
 {
+	// Lock here when this was called from 'D3D12CommandQueue::ExecuteCommandLists' in case there are multiple command queues
+	std::unique_lock<std::mutex> lock(s_global_mutex, std::defer_lock);
+	if (_context == this)
+		lock.lock();
+
 	_stats.vertices += source._stats.vertices;
 	_stats.drawcalls += source._stats.drawcalls;
 
@@ -77,6 +81,12 @@ void reshade::d3d12::state_tracking::merge(const state_tracking &source)
 		target_snapshot.current_stats.drawcalls += snapshot.current_stats.drawcalls;
 
 		target_snapshot.clears.insert(target_snapshot.clears.end(), snapshot.clears.begin(), snapshot.clears.end());
+
+		// Only update state if a transition happened in this command list
+		if (snapshot.current_state != D3D12_RESOURCE_STATE_COMMON)
+			target_snapshot.current_state = snapshot.current_state;
+
+		target_snapshot.copied_due_to_aliasing |= snapshot.copied_due_to_aliasing;
 	}
 #endif
 }
@@ -102,10 +112,65 @@ void reshade::d3d12::state_tracking::on_draw(UINT vertices)
 }
 
 #if RESHADE_DEPTH
+void reshade::d3d12::state_tracking::on_aliasing(const D3D12_RESOURCE_ALIASING_BARRIER &aliasing)
+{
+	if (_context->_depthstencil_clear_texture == nullptr || _context->depthstencil_clear_index.first == nullptr || _context->preserve_depth_buffers)
+		return;
+	if (aliasing.pResourceBefore != nullptr && aliasing.pResourceBefore != _context->depthstencil_clear_index.first)
+		return;
+	// Lock here when this was called from 'D3D12CommandQueue::ExecuteCommandLists' in case there are multiple command queues
+	std::unique_lock<std::mutex> lock(s_global_mutex, std::defer_lock);
+	if (_context == this)
+		lock.lock();
+
+	if (_context->_placed_depthstencil_resources.find(_context->depthstencil_clear_index.first) == _context->_placed_depthstencil_resources.end())
+		return;
+
+	auto &counters = _counters_per_used_depth_texture[_context->depthstencil_clear_index.first];
+	if (counters.current_stats.drawcalls == 0)
+		return;
+
+	const D3D12_RESOURCE_STATES state = counters.current_state != D3D12_RESOURCE_STATE_COMMON ? counters.current_state : D3D12_RESOURCE_STATE_DEPTH_WRITE;
+
+	if (state != D3D12_RESOURCE_STATE_COPY_SOURCE)
+	{
+		D3D12_RESOURCE_BARRIER transition = { D3D12_RESOURCE_BARRIER_TYPE_TRANSITION };
+		transition.Transition.pResource = _context->depthstencil_clear_index.first;
+		transition.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+		transition.Transition.StateBefore = state;
+		transition.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+		_cmd_list->ResourceBarrier(1, &transition);
+	}
+
+	_cmd_list->CopyResource(_context->_depthstencil_clear_texture.get(), _context->depthstencil_clear_index.first);
+
+	if (state != D3D12_RESOURCE_STATE_COPY_SOURCE)
+	{
+		D3D12_RESOURCE_BARRIER transition = { D3D12_RESOURCE_BARRIER_TYPE_TRANSITION };
+		transition.Transition.pResource = _context->depthstencil_clear_index.first;
+		transition.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+		transition.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+		transition.Transition.StateAfter = state;
+		_cmd_list->ResourceBarrier(1, &transition);
+	}
+
+	counters.copied_due_to_aliasing = true;
+}
+void reshade::d3d12::state_tracking::on_transition(const D3D12_RESOURCE_TRANSITION_BARRIER &transition)
+{
+	if ((transition.pResource->GetDesc().Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) == 0)
+		return;
+
+	D3D12_RESOURCE_STATES &current_state = _counters_per_used_depth_texture[transition.pResource].current_state;
+	assert(current_state == transition.StateBefore || current_state == D3D12_RESOURCE_STATE_COMMON);
+	current_state = transition.StateAfter;
+}
+
 void reshade::d3d12::state_tracking::on_set_depthstencil(D3D12_CPU_DESCRIPTOR_HANDLE dsv)
 {
 	_current_depthstencil = _context->resource_from_handle(dsv);
 }
+
 void reshade::d3d12::state_tracking::on_clear_depthstencil(D3D12_CLEAR_FLAGS clear_flags, D3D12_CPU_DESCRIPTOR_HANDLE dsv)
 {
 	assert(_context != nullptr);
@@ -141,18 +206,29 @@ void reshade::d3d12::state_tracking::on_clear_depthstencil(D3D12_CLEAR_FLAGS cle
 	{
 		_best_copy_stats = counters.current_stats;
 
-		D3D12_RESOURCE_BARRIER transition = { D3D12_RESOURCE_BARRIER_TYPE_TRANSITION };
-		transition.Transition.pResource = dsv_texture.get();
-		transition.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-		transition.Transition.StateBefore = D3D12_RESOURCE_STATE_DEPTH_WRITE; // A resource has to be in this state for 'ID3D12GraphicsCommandList::ClearDepthStencilView', so can assume it here
-		transition.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
-		_cmd_list->ResourceBarrier(1, &transition);
+		const D3D12_RESOURCE_STATES state = counters.current_state != D3D12_RESOURCE_STATE_COMMON ? counters.current_state : D3D12_RESOURCE_STATE_DEPTH_WRITE;
 
-		// Do not need to insert a resource barrier for '_depthstencil_clear_texture' here, since it is in D3D12_RESOURCE_STATE_COMMON, which is implicitly promoted to D3D12_RESOURCE_STATE_COPY_DEST
+		if (state != D3D12_RESOURCE_STATE_COPY_SOURCE)
+		{
+			D3D12_RESOURCE_BARRIER transition = { D3D12_RESOURCE_BARRIER_TYPE_TRANSITION };
+			transition.Transition.pResource = dsv_texture.get();
+			transition.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+			transition.Transition.StateBefore = state;
+			transition.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+			_cmd_list->ResourceBarrier(1, &transition);
+		}
+
 		_cmd_list->CopyResource(_context->_depthstencil_clear_texture.get(), dsv_texture.get());
 
-		std::swap(transition.Transition.StateBefore, transition.Transition.StateAfter);
-		_cmd_list->ResourceBarrier(1, &transition);
+		if (state != D3D12_RESOURCE_STATE_COPY_SOURCE)
+		{
+			D3D12_RESOURCE_BARRIER transition = { D3D12_RESOURCE_BARRIER_TYPE_TRANSITION };
+			transition.Transition.pResource = dsv_texture.get();
+			transition.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+			transition.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+			transition.Transition.StateAfter = state;
+			_cmd_list->ResourceBarrier(1, &transition);
+		}
 	}
 
 	// Reset draw call stats for clears
@@ -163,6 +239,14 @@ void reshade::d3d12::state_tracking_context::on_create_dsv(ID3D12Resource *dsv_t
 {
 	const std::lock_guard<std::mutex> lock(s_global_mutex);
 	_depthstencil_resources_by_handle[handle.ptr] = dsv_texture;
+}
+void reshade::d3d12::state_tracking_context::on_create_placed_resource(ID3D12Resource *resource, ID3D12Heap *, UINT64)
+{
+	if ((resource->GetDesc().Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) == 0)
+		return;
+
+	const std::lock_guard<std::mutex> lock(s_global_mutex);
+	_placed_depthstencil_resources.insert(resource);
 }
 
 com_ptr<ID3D12Resource> reshade::d3d12::state_tracking_context::resource_from_handle(D3D12_CPU_DESCRIPTOR_HANDLE handle) const
@@ -211,11 +295,12 @@ bool reshade::d3d12::state_tracking_context::update_depthstencil_clear_texture(I
 
 	D3D12_HEAP_PROPERTIES heap_props = { D3D12_HEAP_TYPE_DEFAULT };
 
-	if (HRESULT hr = _device->CreateCommittedResource(&heap_props, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COMMON, nullptr, IID_PPV_ARGS(&_depthstencil_clear_texture)); FAILED(hr))
+	if (HRESULT hr = _device->CreateCommittedResource(&heap_props, D3D12_HEAP_FLAG_NONE, &desc, D3D12_RESOURCE_STATE_COPY_DEST, nullptr, IID_PPV_ARGS(&_depthstencil_clear_texture)); FAILED(hr))
 	{
 		LOG(ERROR) << "Failed to create depth-stencil texture! HRESULT is " << hr << '.';
 		return false;
 	}
+	_depthstencil_clear_texture->SetName(L"ReShade depth copy texture");
 
 	return true;
 }
@@ -224,77 +309,49 @@ com_ptr<ID3D12Resource> reshade::d3d12::state_tracking_context::update_depth_tex
 {
 	depthstencil_info best_snapshot;
 	com_ptr<ID3D12Resource> best_match = override;
-
-	std::vector<std::pair<ID3D12Resource *, state_tracking::depthstencil_info>> stats_buffers;
-	for (const auto &[dsv_texture, snapshot] : _counters_per_used_depth_texture)
-	{
-		if (snapshot.total_stats.drawcalls == 0)
-			continue; // Skip unused
-
-		const D3D12_RESOURCE_DESC desc = dsv_texture->GetDesc();
-		assert((desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) != 0);
-
-		if (desc.SampleDesc.Count > 1)
-			continue; // Ignore MSAA textures, since they would need to be resolved first
-
-		if (use_aspect_ratio_heuristics)
-		{
-			assert(width != 0 && height != 0);
-			const float w = static_cast<float>(width);
-			const float w_ratio = w / desc.Width;
-			const float h = static_cast<float>(height);
-			const float h_ratio = h / desc.Height;
-			const float aspect_ratio = (w / h) - (static_cast<float>(desc.Width) / desc.Height);
-
-			if (std::fabs(aspect_ratio) > 0.1f || w_ratio > 1.85f || h_ratio > 1.85f || w_ratio < 0.5f || h_ratio < 0.5f)
-				continue; // Not a good fit
-		}
-
-		stats_buffers.push_back({ dsv_texture.get(), snapshot });
-	}
-
-	_sorted_depth_buffers.reserve(stats_buffers.size());
-
-	for (const auto &[dsv_texture, snapshot] : stats_buffers)
-		_sorted_depth_buffers.push_back({ dsv_texture, snapshot });
-
-	if (!_has_indirect_drawcalls || second_best_depth_buffer)
-		std::sort(_sorted_depth_buffers.begin(), _sorted_depth_buffers.end(), [](const auto &a, const auto &b) { return a.second.total_stats.vertices > b.second.total_stats.vertices; });
-	else
-		std::sort(_sorted_depth_buffers.begin(), _sorted_depth_buffers.end(), [](const auto &a, const auto &b) { return a.second.total_stats.drawcalls > b.second.total_stats.drawcalls; });
-
 	if (best_match != nullptr)
 	{
 		best_snapshot = _counters_per_used_depth_texture[best_match];
 	}
 	else
 	{
-		if (!_sorted_depth_buffers.empty())
+		for (auto &[dsv_texture, snapshot] : _counters_per_used_depth_texture)
 		{
-			best_match = _sorted_depth_buffers.front().first;
-			best_snapshot = _sorted_depth_buffers.front().second;
+			if (snapshot.total_stats.drawcalls == 0)
+				continue; // Skip unused
 
-			if (second_best_depth_buffer && _sorted_depth_buffers.size() > 1)
+			const D3D12_RESOURCE_DESC desc = dsv_texture->GetDesc();
+			assert((desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL) != 0);
+
+			if (desc.SampleDesc.Count > 1)
+				continue; // Ignore MSAA textures, since they would need to be resolved first
+
+			if (use_aspect_ratio_heuristics)
 			{
-				for (const auto &[dsv_texture, snapshot] : _sorted_depth_buffers)
-				{
-					if (dsv_texture == best_match)
-						continue;
+				assert(width != 0 && height != 0);
+				const float w = static_cast<float>(width);
+				const float w_ratio = w / desc.Width;
+				const float h = static_cast<float>(height);
+				const float h_ratio = h / desc.Height;
+				const float aspect_ratio = (w / h) - (static_cast<float>(desc.Width) / desc.Height);
 
-					const D3D12_RESOURCE_DESC best_desc = best_match->GetDesc();
-					const D3D12_RESOURCE_DESC candidate_desc = dsv_texture->GetDesc();
+				if (std::fabs(aspect_ratio) > 0.1f || w_ratio > 1.85f || h_ratio > 1.85f || w_ratio < 0.5f || h_ratio < 0.5f)
+					continue; // Not a good fit
+			}
 
-					if (best_desc.Width != candidate_desc.Width || best_desc.Height != candidate_desc.Height || candidate_desc.Format != DXGI_FORMAT_R32_TYPELESS)
-						continue;
-
-					best_match = dsv_texture;
-					best_snapshot = snapshot;
-					break;
-				}
+			if (!_has_indirect_drawcalls ?
+				// Choose snapshot with the most vertices, since that is likely to contain the main scene
+				snapshot.total_stats.vertices > best_snapshot.total_stats.vertices :
+				// Or check draw calls, since vertices may not be accurate if application is using indirect draw calls
+				snapshot.total_stats.drawcalls > best_snapshot.total_stats.drawcalls)
+			{
+				best_match = dsv_texture;
+				best_snapshot = snapshot;
 			}
 		}
 	}
 
+	const bool has_changed = depthstencil_clear_index.first != best_match;
 	depthstencil_clear_index.first = best_match.get();
 
 	if (best_match == nullptr || !update_depthstencil_clear_texture(queue, best_match->GetDesc()))
@@ -306,19 +363,37 @@ com_ptr<ID3D12Resource> reshade::d3d12::state_tracking_context::update_depth_tex
 	}
 	else
 	{
-		D3D12_RESOURCE_BARRIER transition = { D3D12_RESOURCE_BARRIER_TYPE_TRANSITION };
-		transition.Transition.pResource = best_match.get();
-		transition.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-		transition.Transition.StateBefore = D3D12_RESOURCE_STATE_DEPTH_WRITE; // A resource has to be in this state for 'ID3D12GraphicsCommandList::ClearDepthStencilView', so can assume it here
-		transition.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
-		list->ResourceBarrier(1, &transition);
+		// Do not copy at end of frame if already copied due to aliasing, or it is not guaranteed that the resource is not aliased
+		const std::lock_guard<std::mutex> lock(s_global_mutex);
+		if (!best_snapshot.copied_due_to_aliasing && (!has_changed || _placed_depthstencil_resources.find(depthstencil_clear_index.first) == _placed_depthstencil_resources.end()))
+		{
+			const D3D12_RESOURCE_STATES state = best_snapshot.current_state != D3D12_RESOURCE_STATE_COMMON ? best_snapshot.current_state : D3D12_RESOURCE_STATE_DEPTH_WRITE;
 
-		// Do not need to insert a resource barrier for '_depthstencil_clear_texture' here, since it is in D3D12_RESOURCE_STATE_COMMON, which is implicitly promoted to D3D12_RESOURCE_STATE_COPY_DEST
-		list->CopyResource(_context->_depthstencil_clear_texture.get(), best_match.get());
+			if (state != D3D12_RESOURCE_STATE_COPY_SOURCE)
+			{
+				D3D12_RESOURCE_BARRIER transition = { D3D12_RESOURCE_BARRIER_TYPE_TRANSITION };
+				transition.Transition.pResource = best_match.get();
+				transition.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+				transition.Transition.StateBefore = state;
+				transition.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
+				list->ResourceBarrier(1, &transition);
+			}
 
-		std::swap(transition.Transition.StateBefore, transition.Transition.StateAfter);
-		list->ResourceBarrier(1, &transition);
+			list->CopyResource(_context->_depthstencil_clear_texture.get(), best_match.get());
+
+			if (state != D3D12_RESOURCE_STATE_COPY_SOURCE)
+			{
+				D3D12_RESOURCE_BARRIER transition = { D3D12_RESOURCE_BARRIER_TYPE_TRANSITION };
+				transition.Transition.pResource = best_match.get();
+				transition.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+				transition.Transition.StateBefore = D3D12_RESOURCE_STATE_COPY_SOURCE;
+				transition.Transition.StateAfter = state;
+				list->ResourceBarrier(1, &transition);
+			}
+		}
 	}
+
+	best_snapshot.copied_due_to_aliasing = false;
 
 	return _depthstencil_clear_texture;
 }
