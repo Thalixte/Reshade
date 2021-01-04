@@ -889,6 +889,8 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD fdwReason, LPVOID)
 			}
 		}
 
+		Sleep(10000);
+
 		reshade::hooks::register_module(L"user32.dll");
 		reshade::hooks::register_module(L"ws2_32.dll");
 
