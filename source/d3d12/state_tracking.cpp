@@ -284,7 +284,7 @@ com_ptr<ID3D12Resource> reshade::d3d12::state_tracking_context::update_depth_tex
 					const D3D12_RESOURCE_DESC best_desc = best_match->GetDesc();
 					const D3D12_RESOURCE_DESC candidate_desc = dsv_texture->GetDesc();
 
-					if (best_desc.Width != candidate_desc.Width || best_desc.Height != candidate_desc.Height)
+					if (best_desc.Width != candidate_desc.Width || best_desc.Height != candidate_desc.Height || candidate_desc.Format != DXGI_FORMAT_R32_TYPELESS)
 						continue;
 
 					best_match = dsv_texture;
