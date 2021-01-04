@@ -195,6 +195,20 @@ void STDMETHODCALLTYPE D3D12GraphicsCommandList::SetPipelineState(ID3D12Pipeline
 }
 void STDMETHODCALLTYPE D3D12GraphicsCommandList::ResourceBarrier(UINT NumBarriers, const D3D12_RESOURCE_BARRIER *pBarriers)
 {
+#if RESHADE_DEPTH
+	for (UINT i = 0; i < NumBarriers; ++i)
+	{
+		switch (pBarriers[i].Type)
+		{
+		case D3D12_RESOURCE_BARRIER_TYPE_ALIASING:
+			_state.on_aliasing(pBarriers[i].Aliasing);
+			break;
+		case D3D12_RESOURCE_BARRIER_TYPE_TRANSITION:
+			_state.on_transition(pBarriers[i].Transition);
+			break;
+		}
+	}
+#endif
 	_orig->ResourceBarrier(NumBarriers, pBarriers);
 }
 void STDMETHODCALLTYPE D3D12GraphicsCommandList::ExecuteBundle(ID3D12GraphicsCommandList *pCommandList)

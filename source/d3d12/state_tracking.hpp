@@ -7,6 +7,7 @@
 
 #include <vector>
 #include <unordered_map>
+#include <unordered_set>
 #include <d3d12.h>
 #include "com_ptr.hpp"
 
@@ -25,6 +26,8 @@ namespace reshade::d3d12
 			draw_stats total_stats;
 			draw_stats current_stats; // Stats since last clear
 			std::vector<draw_stats> clears;
+			D3D12_RESOURCE_STATES current_state = D3D12_RESOURCE_STATE_COMMON;
+			bool copied_due_to_aliasing = false;
 		};
 
 		void init(ID3D12Device *device, ID3D12GraphicsCommandList *cmd_list, const class state_tracking_context *context);
@@ -34,6 +37,8 @@ namespace reshade::d3d12
 
 		void on_draw(UINT vertices);
 #if RESHADE_DEPTH
+		void on_aliasing(const D3D12_RESOURCE_ALIASING_BARRIER &aliasing);
+		void on_transition(const D3D12_RESOURCE_TRANSITION_BARRIER &transition);
 		void on_set_depthstencil(D3D12_CPU_DESCRIPTOR_HANDLE dsv);
 		void on_clear_depthstencil(D3D12_CLEAR_FLAGS clear_flags, D3D12_CPU_DESCRIPTOR_HANDLE dsv);
 #endif
@@ -72,6 +77,7 @@ namespace reshade::d3d12
 
 #if RESHADE_DEPTH
 		void on_create_dsv(ID3D12Resource *dsv_texture, D3D12_CPU_DESCRIPTOR_HANDLE handle);
+		void on_create_placed_resource(ID3D12Resource *resource, ID3D12Heap *heap, UINT64 offset);
 
 		// Detection Settings
 		bool second_best_depth_buffer = false;
@@ -103,6 +109,7 @@ namespace reshade::d3d12
 		com_ptr<ID3D12Resource> _depthstencil_clear_texture;
 		// Do not hold a reference to the resources here
 		std::unordered_map<SIZE_T, ID3D12Resource *> _depthstencil_resources_by_handle;
+		std::unordered_set<ID3D12Resource *> _placed_depthstencil_resources;
 #endif
 
 #if RESHADE_WIREFRAME
