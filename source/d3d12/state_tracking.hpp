@@ -78,6 +78,7 @@ namespace reshade::d3d12
 #if RESHADE_DEPTH
 		void on_create_dsv(ID3D12Resource *dsv_texture, D3D12_CPU_DESCRIPTOR_HANDLE handle);
 		void on_create_placed_resource(ID3D12Resource *resource, ID3D12Heap *heap, UINT64 offset);
+		std::vector<std::pair<ID3D12Resource*, depthstencil_info>> sorted_counters_per_used_depthstencil();
 
 		// Detection Settings
 		bool second_best_depth_buffer = false;
@@ -88,7 +89,7 @@ namespace reshade::d3d12
 		const auto &depth_buffer_counters() const { return _counters_per_used_depth_texture; }
 		const auto &sorted_depth_buffer_counters() const { return _sorted_depth_buffers; }
 
-		com_ptr<ID3D12Resource> update_depth_texture(ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *list,
+		com_ptr<ID3D12Resource> update_depth_texture(ID3D12GraphicsCommandList *list,
 			UINT width, UINT height,
 			ID3D12Resource *override = nullptr);
 #endif
@@ -103,13 +104,14 @@ namespace reshade::d3d12
 #if RESHADE_DEPTH
 		com_ptr<ID3D12Resource> resource_from_handle(D3D12_CPU_DESCRIPTOR_HANDLE handle) const;
 
-		bool update_depthstencil_clear_texture(ID3D12CommandQueue *queue, D3D12_RESOURCE_DESC desc);
+		bool update_depthstencil_clear_texture(D3D12_RESOURCE_DESC desc);
 
 		draw_stats _previous_stats;
 		com_ptr<ID3D12Resource> _depthstencil_clear_texture;
 		// Do not hold a reference to the resources here
 		std::unordered_map<SIZE_T, ID3D12Resource *> _depthstencil_resources_by_handle;
 		std::unordered_set<ID3D12Resource *> _placed_depthstencil_resources;
+		std::unordered_map<ID3D12Resource *, int> _shown_count_per_depthstencil_address;
 #endif
 
 #if RESHADE_WIREFRAME

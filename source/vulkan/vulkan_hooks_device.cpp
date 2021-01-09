@@ -481,7 +481,7 @@ VkResult VKAPI_CALL vkCreateSwapchainKHR(VkDevice device, const VkSwapchainCreat
 		// Look up window handle from surface
 		const HWND hwnd = s_surface_windows.at(pCreateInfo->surface);
 
-		if (!runtime->on_init(*pSwapchain, *pCreateInfo, hwnd))
+		if (!runtime->on_init(*pSwapchain, create_info, hwnd))
 			LOG(ERROR) << "Failed to initialize Vulkan runtime environment on runtime " << runtime << '.';
 
 		s_vulkan_runtimes.emplace(*pSwapchain, runtime);
@@ -502,10 +502,8 @@ void     VKAPI_CALL vkDestroySwapchainKHR(VkDevice device, VkSwapchainKHR swapch
 
 	// Remove runtime from global list
 	if (reshade::vulkan::runtime_vk *runtime;
-		s_vulkan_runtimes.erase(swapchain, runtime) && runtime != nullptr)
+		s_vulkan_runtimes.erase(swapchain, runtime))
 	{
-		runtime->on_reset();
-
 		delete runtime;
 	}
 

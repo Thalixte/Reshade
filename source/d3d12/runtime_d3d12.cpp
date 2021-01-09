@@ -10,6 +10,7 @@
 #include "runtime_d3d12.hpp"
 #include "runtime_objects.hpp"
 #include "dxgi/format_utils.hpp"
+#include <CoreWindow.h>
 #include <imgui.h>
 #include <imgui_internal.h>
 #include <d3dcompiler.h>
@@ -52,7 +53,7 @@ namespace reshade::d3d12
 		D3D12_CPU_DESCRIPTOR_HANDLE sampler_cpu_base;
 		D3D12_GPU_DESCRIPTOR_HANDLE sampler_gpu_base;
 #if RESHADE_DEPTH
-		D3D12_CPU_DESCRIPTOR_HANDLE depth_texture_binding = {};
+		std::vector<D3D12_CPU_DESCRIPTOR_HANDLE> depth_texture_bindings;
 #endif
 	};
 
@@ -86,9 +87,9 @@ reshade::d3d12::runtime_d3d12::runtime_d3d12(ID3D12Device *device, ID3D12Command
 
 	// There is no swap chain in d3d12on7
 	if (com_ptr<IDXGIFactory4> factory;
-		swapchain != nullptr && SUCCEEDED(swapchain->GetParent(IID_PPV_ARGS(&factory))))
+		_swapchain != nullptr && SUCCEEDED(_swapchain->GetParent(IID_PPV_ARGS(&factory))))
 	{
-		const LUID luid = device->GetAdapterLuid();
+		const LUID luid = _device->GetAdapterLuid();
 
 		if (com_ptr<IDXGIAdapter> dxgi_adapter;
 			SUCCEEDED(factory->EnumAdapterByLuid(luid, IID_PPV_ARGS(&dxgi_adapter))))
@@ -124,13 +125,36 @@ reshade::d3d12::runtime_d3d12::runtime_d3d12(ID3D12Device *device, ID3D12Command
 		config.set("DEPTH", "UseAspectRatioHeuristics", _state_tracking.use_aspect_ratio_heuristics);
 	});
 #endif
+
+	if (_swapchain != nullptr && !on_init())
+		LOG(ERROR) << "Failed to initialize Direct3D 12 runtime environment on runtime " << this << '!';
 }
 reshade::d3d12::runtime_d3d12::~runtime_d3d12()
 {
+	on_reset();
+
 	if (_d3d_compiler != nullptr)
 		FreeLibrary(_d3d_compiler);
 }
 
+bool reshade::d3d12::runtime_d3d12::on_init()
+{
+	assert(_swapchain != nullptr);
+
+	DXGI_SWAP_CHAIN_DESC swap_desc;
+	// Get description from IDXGISwapChain interface, since later versions are slightly different
+	if (FAILED(_swapchain->GetDesc(&swap_desc)))
+		return false;
+
+	// Update window handle in swap chain description for UWP applications
+	if (HWND hwnd = nullptr; SUCCEEDED(_swapchain->GetHwnd(&hwnd)))
+		swap_desc.OutputWindow = hwnd;
+	else if (com_ptr<ICoreWindowInterop> window_interop; // Get window handle of the core window
+		SUCCEEDED(_swapchain->GetCoreWindow(IID_PPV_ARGS(&window_interop))) && SUCCEEDED(window_interop->get_WindowHandle(&hwnd)))
+		swap_desc.OutputWindow = hwnd;
+
+	return on_init(swap_desc);
+}
 bool reshade::d3d12::runtime_d3d12::on_init(const DXGI_SWAP_CHAIN_DESC &swap_desc)
 {
 	RECT window_rect = {};
@@ -380,7 +404,7 @@ void reshade::d3d12::runtime_d3d12::on_present()
 		return;
 
 #if RESHADE_DEPTH
-	update_depth_texture_bindings(_state_tracking.update_depth_texture(_commandqueue.get(), _cmd_list.get(), _width, _height, _depth_texture_override));
+	update_depth_texture_bindings(_state_tracking.update_depth_texture(_cmd_list.get(), _width, _height, _depth_texture_override));
 
 	// Potentially have to restart command list here because depth texture binding update may have done a wait for idle
 	if (!begin_command_list())
@@ -586,10 +610,16 @@ bool reshade::d3d12::runtime_d3d12::init_effect(size_t index)
 			break;
 		}
 
+		UINT compile_flags = D3DCOMPILE_ENABLE_STRICTNESS;
+		compile_flags |= (_performance_mode ? D3DCOMPILE_OPTIMIZATION_LEVEL3 : D3DCOMPILE_OPTIMIZATION_LEVEL1);
+#ifndef NDEBUG
+		compile_flags |= D3DCOMPILE_DEBUG;
+#endif
+
 		std::string attributes;
 		attributes += "entrypoint=" + entry_point.name + ';';
 		attributes += "profile=" + profile + ';';
-		attributes += "flags=" + std::to_string(D3DCOMPILE_ENABLE_STRICTNESS | (_performance_mode ? D3DCOMPILE_OPTIMIZATION_LEVEL3 : D3DCOMPILE_OPTIMIZATION_LEVEL1)) + ';';
+		attributes += "flags=" + std::to_string(compile_flags) + ';';
 
 		const size_t hash = std::hash<std::string_view>()(attributes) ^ std::hash<std::string_view>()(hlsl);
 		std::vector<char> &cso = entry_points[entry_point.name];
@@ -601,7 +631,7 @@ bool reshade::d3d12::runtime_d3d12::init_effect(size_t index)
 				nullptr, nullptr, nullptr,
 				entry_point.name.c_str(),
 				profile.c_str(),
-				D3DCOMPILE_ENABLE_STRICTNESS | (_performance_mode ? D3DCOMPILE_OPTIMIZATION_LEVEL3 : D3DCOMPILE_OPTIMIZATION_LEVEL1), 0,
+				compile_flags, 0,
 				&d3d_compiled, &d3d_errors);
 
 			if (d3d_errors != nullptr) // Append warnings to the output error string as well
@@ -994,8 +1024,8 @@ bool reshade::d3d12::runtime_d3d12::init_effect(size_t index)
 				if (texture.semantic == "DEPTH")
 				{
 					resource = _depth_texture; // Note: This can be a "nullptr"
-					// Keep track of the depth buffer texture descriptor to simplify updating it
-					effect_data.depth_texture_binding = srv_handle;
+					// Keep track of the depth buffer texture descriptors of each pass to simplify updating it
+					effect_data.depth_texture_bindings.push_back(srv_handle);
 				}
 #endif
 
@@ -1075,7 +1105,7 @@ void reshade::d3d12::runtime_d3d12::unload_effect(size_t index)
 		effect_data.srv_uav_heap.reset();
 		effect_data.sampler_heap.reset();
 #if RESHADE_DEPTH
-		effect_data.depth_texture_binding = { 0 };
+		effect_data.depth_texture_bindings.clear();
 #endif
 	}
 }
@@ -1804,12 +1834,8 @@ void reshade::d3d12::runtime_d3d12::draw_depth_debug_menu()
 	ImGui::Separator();
 	ImGui::Spacing();
 
-	// Sort pointer list so that added/removed items do not change the UI much
-	std::vector<std::pair<ID3D12Resource *, state_tracking::depthstencil_info>> sorted_buffers;
-	sorted_buffers.reserve(_state_tracking.depth_buffer_counters().size());
-	for (const auto &[dsv_texture, snapshot] : _state_tracking.depth_buffer_counters())
-		sorted_buffers.push_back({ dsv_texture.get(), snapshot });
-	std::sort(sorted_buffers.begin(), sorted_buffers.end(), [](const auto &a, const auto &b) { return a.first < b.first; });
+	auto sorted_buffers = _state_tracking.sorted_counters_per_used_depthstencil();
+	
 	for (const auto &[dsv_texture, snapshot] : sorted_buffers)
 	{
 		if (snapshot.total_stats.drawcalls == 0)
@@ -1879,6 +1905,10 @@ void reshade::d3d12::runtime_d3d12::update_depth_texture_bindings(com_ptr<ID3D12
 	if (depth_texture == _depth_texture)
 		return;
 
+	// Descriptors may be currently in use, so make sure all previous frames have finished before updating them
+	wait_for_command_queue();
+
+	// This potentially destroys the previous resource, so it must not be in use on the GPU at this point anymore!
 	_depth_texture = std::move(depth_texture);
 
 	D3D12_SHADER_RESOURCE_VIEW_DESC srv_desc = {};
@@ -1908,16 +1938,9 @@ void reshade::d3d12::runtime_d3d12::update_depth_texture_bindings(com_ptr<ID3D12
 		_has_depth_texture = false;
 	}
 
-	// Descriptors may be currently in use, so make sure all previous frames have finished before updating them
-	wait_for_command_queue();
-
-	for (effect_data &effect_data : _effect_data)
-	{
-		if (effect_data.depth_texture_binding.ptr == 0)
-			continue; // Skip effects that do not have a depth buffer binding
-
-		// Either create a shader resource view or a null descriptor
-		_device->CreateShaderResourceView(_depth_texture.get(), &srv_desc, effect_data.depth_texture_binding);
-	}
+	// Either create a shader resource view or set a null descriptor
+	for (const effect_data &effect_data : _effect_data)
+		for (D3D12_CPU_DESCRIPTOR_HANDLE binding : effect_data.depth_texture_bindings)
+			_device->CreateShaderResourceView(_depth_texture.get(), &srv_desc, binding);
 }
 #endif

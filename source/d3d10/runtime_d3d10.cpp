@@ -55,7 +55,7 @@ reshade::d3d10::runtime_d3d10::runtime_d3d10(ID3D10Device1 *device, IDXGISwapCha
 {
 	assert(device != nullptr && swapchain != nullptr && state_tracking != nullptr);
 
-	_renderer_id = device->GetFeatureLevel();
+	_renderer_id = _device->GetFeatureLevel();
 
 	if (com_ptr<IDXGIDevice> dxgi_device;
 		SUCCEEDED(_device->QueryInterface(&dxgi_device)))
@@ -94,15 +94,24 @@ reshade::d3d10::runtime_d3d10::runtime_d3d10(ID3D10Device1 *device, IDXGISwapCha
 		config.set("DEPTH", "UseAspectRatioHeuristics", _state_tracking.use_aspect_ratio_heuristics);
 	});
 #endif
+
+	if (!on_init())
+		LOG(ERROR) << "Failed to initialize Direct3D 10 runtime environment on runtime " << this << '!';
 }
 reshade::d3d10::runtime_d3d10::~runtime_d3d10()
 {
+	on_reset();
+
 	if (_d3d_compiler != nullptr)
 		FreeLibrary(_d3d_compiler);
 }
 
-bool reshade::d3d10::runtime_d3d10::on_init(const DXGI_SWAP_CHAIN_DESC &swap_desc)
+bool reshade::d3d10::runtime_d3d10::on_init()
 {
+	DXGI_SWAP_CHAIN_DESC swap_desc;
+	if (FAILED(_swapchain->GetDesc(&swap_desc)))
+		return false;
+
 	RECT window_rect = {};
 	GetClientRect(swap_desc.OutputWindow, &window_rect);
 
@@ -441,10 +450,16 @@ bool reshade::d3d10::runtime_d3d10::init_effect(size_t index)
 			break;
 		}
 
+		UINT compile_flags = D3DCOMPILE_ENABLE_STRICTNESS;
+		compile_flags |= (_performance_mode ? D3DCOMPILE_OPTIMIZATION_LEVEL3 : D3DCOMPILE_OPTIMIZATION_LEVEL1);
+#ifndef NDEBUG
+		compile_flags |= D3DCOMPILE_DEBUG;
+#endif
+
 		std::string attributes;
 		attributes += "entrypoint=" + entry_point.name + ';';
 		attributes += "profile=" + profile + ';';
-		attributes += "flags=" + std::to_string(D3DCOMPILE_ENABLE_STRICTNESS | (_performance_mode ? D3DCOMPILE_OPTIMIZATION_LEVEL3 : D3DCOMPILE_OPTIMIZATION_LEVEL1)) + ';';
+		attributes += "flags=" + std::to_string(compile_flags) + ';';
 
 		const size_t hash = std::hash<std::string_view>()(attributes) ^ std::hash<std::string_view>()(hlsl);
 		std::vector<char> cso;
@@ -456,7 +471,7 @@ bool reshade::d3d10::runtime_d3d10::init_effect(size_t index)
 				nullptr, nullptr, nullptr,
 				entry_point.name.c_str(),
 				profile.c_str(),
-				D3DCOMPILE_ENABLE_STRICTNESS | (_performance_mode ? D3DCOMPILE_OPTIMIZATION_LEVEL3 : D3DCOMPILE_OPTIMIZATION_LEVEL1), 0,
+				compile_flags, 0,
 				&d3d_compiled, &d3d_errors);
 
 			if (d3d_errors != nullptr) // Append warnings to the output error string as well

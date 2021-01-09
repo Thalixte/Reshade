@@ -5,12 +5,12 @@
 
 #include "dll_log.hpp"
 #include "dxgi_device.hpp"
-#include "dxgi_swapchain.hpp"
 
 DXGIDevice::DXGIDevice(IDXGIDevice1 *original, IUnknown *direct3d_device) :
 	_orig(original),
 	_interface_version(1),
-	_direct3d_device(direct3d_device) {
+	_direct3d_device(direct3d_device)
+{
 	assert(_orig != nullptr && _direct3d_device != nullptr);
 }
 

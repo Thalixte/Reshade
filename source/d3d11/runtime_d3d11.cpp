@@ -60,7 +60,7 @@ reshade::d3d11::runtime_d3d11::runtime_d3d11(ID3D11Device *device, IDXGISwapChai
 
 	_device->GetImmediateContext(&_immediate_context);
 
-	_renderer_id = device->GetFeatureLevel();
+	_renderer_id = _device->GetFeatureLevel();
 
 	if (com_ptr<IDXGIDevice> dxgi_device;
 		SUCCEEDED(_device->QueryInterface(&dxgi_device)))
@@ -99,15 +99,24 @@ reshade::d3d11::runtime_d3d11::runtime_d3d11(ID3D11Device *device, IDXGISwapChai
 		config.set("DEPTH", "UseAspectRatioHeuristics", _state_tracking.use_aspect_ratio_heuristics);
 	});
 #endif
+
+	if (!on_init())
+		LOG(ERROR) << "Failed to initialize Direct3D 11 runtime environment on runtime " << this << '!';
 }
 reshade::d3d11::runtime_d3d11::~runtime_d3d11()
 {
+	on_reset();
+
 	if (_d3d_compiler != nullptr)
 		FreeLibrary(_d3d_compiler);
 }
 
-bool reshade::d3d11::runtime_d3d11::on_init(const DXGI_SWAP_CHAIN_DESC &swap_desc)
+bool reshade::d3d11::runtime_d3d11::on_init()
 {
+	DXGI_SWAP_CHAIN_DESC swap_desc;
+	if (FAILED(_swapchain->GetDesc(&swap_desc)))
+		return false;
+
 	RECT window_rect = {};
 	GetClientRect(swap_desc.OutputWindow, &window_rect);
 
@@ -479,10 +488,16 @@ bool reshade::d3d11::runtime_d3d11::init_effect(size_t index)
 			break;
 		}
 
+		UINT compile_flags = D3DCOMPILE_ENABLE_STRICTNESS;
+		compile_flags |= (_performance_mode ? D3DCOMPILE_OPTIMIZATION_LEVEL3 : D3DCOMPILE_OPTIMIZATION_LEVEL1);
+#ifndef NDEBUG
+		compile_flags |= D3DCOMPILE_DEBUG;
+#endif
+
 		std::string attributes;
 		attributes += "entrypoint=" + entry_point.name + ';';
 		attributes += "profile=" + profile + ';';
-		attributes += "flags=" + std::to_string(D3DCOMPILE_ENABLE_STRICTNESS | (_performance_mode ? D3DCOMPILE_OPTIMIZATION_LEVEL3 : D3DCOMPILE_OPTIMIZATION_LEVEL1)) + ';';
+		attributes += "flags=" + std::to_string(compile_flags) + ';';
 
 		const size_t hash = std::hash<std::string_view>()(attributes) ^ std::hash<std::string_view>()(hlsl);
 		std::vector<char> cso;
@@ -494,7 +509,7 @@ bool reshade::d3d11::runtime_d3d11::init_effect(size_t index)
 				nullptr, nullptr, nullptr,
 				entry_point.name.c_str(),
 				profile.c_str(),
-				D3DCOMPILE_ENABLE_STRICTNESS | (_performance_mode ? D3DCOMPILE_OPTIMIZATION_LEVEL3 : D3DCOMPILE_OPTIMIZATION_LEVEL1), 0,
+				compile_flags, 0,
 				&d3d_compiled, &d3d_errors);
 
 			if (d3d_errors != nullptr) // Append warnings to the output error string as well
@@ -1460,12 +1475,8 @@ void reshade::d3d11::runtime_d3d11::draw_depth_debug_menu()
 	ImGui::Separator();
 	ImGui::Spacing();
 
-	// Sort pointer list so that added/removed items do not change the UI much
-	std::vector<std::pair<ID3D11Texture2D *, state_tracking::depthstencil_info>> sorted_buffers;
-	sorted_buffers.reserve(_state_tracking.depth_buffer_counters().size());
-	for (const auto &[dsv_texture, snapshot] : _state_tracking.depth_buffer_counters())
-		sorted_buffers.push_back({ dsv_texture.get(), snapshot });
-	std::sort(sorted_buffers.begin(), sorted_buffers.end(), [](const auto &a, const auto &b) { return a.first < b.first; });
+	auto sorted_buffers = _state_tracking.sorted_counters_per_used_depthstencil();
+
 	for (const auto &[dsv_texture, snapshot] : sorted_buffers)
 	{
 		char label[512] = "";

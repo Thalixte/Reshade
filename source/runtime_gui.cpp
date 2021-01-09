@@ -2425,8 +2425,8 @@ void reshade::runtime::draw_variable_editor()
 				int data[16];
 				get_uniform_value(variable, data, 16);
 
-				const auto ui_min_val = variable.annotation_as_int("ui_min", 0, std::numeric_limits<int>::lowest());
-				const auto ui_max_val = variable.annotation_as_int("ui_max", 0, std::numeric_limits<int>::max());
+				const auto ui_min_val = variable.annotation_as_int("ui_min", 0, ui_type == "slider" ? 0 : std::numeric_limits<int>::lowest());
+				const auto ui_max_val = variable.annotation_as_int("ui_max", 0, ui_type == "slider" ? 1 : std::numeric_limits<int>::max());
 				const auto ui_stp_val = std::max(1, variable.annotation_as_int("ui_step"));
 
 				if (ui_type == "slider")
@@ -2456,8 +2456,8 @@ void reshade::runtime::draw_variable_editor()
 				float data[16];
 				get_uniform_value(variable, data, 16);
 
-				const auto ui_min_val = variable.annotation_as_float("ui_min", 0, std::numeric_limits<float>::lowest());
-				const auto ui_max_val = variable.annotation_as_float("ui_max", 0, std::numeric_limits<float>::max());
+				const auto ui_min_val = variable.annotation_as_float("ui_min", 0, ui_type == "slider" ? 0.0f : std::numeric_limits<float>::lowest());
+				const auto ui_max_val = variable.annotation_as_float("ui_max", 0, ui_type == "slider" ? 1.0f : std::numeric_limits<float>::max());
 				const auto ui_stp_val = std::max(0.001f, variable.annotation_as_float("ui_step"));
 
 				// Calculate display precision based on step value
@@ -2645,11 +2645,6 @@ void reshade::runtime::draw_variable_editor()
 					// The preset is actually loaded again next frame to update the technique status (see 'update_and_render_effects'), so cannot use 'save_current_preset' here
 					ini_file::load_cache(_current_preset_path).set({}, "PreprocessorDefinitions", _preset_preprocessor_definitions);
 				}
-
-				// Update errors in any editors referencing this effect
-				for (editor_instance &instance : _editors)
-					if (instance.effect_index == effect_index)
-						open_code_editor(instance);
 			}
 
 			// Reloading an effect file invalidates all textures, but the statistics window may already have drawn references to those, so need to reset it
@@ -2967,9 +2962,13 @@ void reshade::runtime::open_code_editor(editor_instance &instance)
 	}
 	else if (!instance.editor.is_modified())
 	{
-		instance.editor.set_text(
-			std::string(std::istreambuf_iterator<char>(std::ifstream(instance.file_path).rdbuf()), std::istreambuf_iterator<char>()));
-		instance.editor.set_readonly(false);
+		// Only update text if there is no undo history (in which case it can be assumed that the text is already up-to-date)
+		if (!instance.editor.can_undo())
+		{
+			instance.editor.set_text(
+				std::string(std::istreambuf_iterator<char>(std::ifstream(instance.file_path).rdbuf()), std::istreambuf_iterator<char>()));
+			instance.editor.set_readonly(false);
+		}
 
 		instance.editor.clear_errors();
 
@@ -3007,11 +3006,10 @@ void reshade::runtime::draw_code_editor(editor_instance &instance)
 
 		if (!is_loading() && instance.effect_index < _effects.size())
 		{
-			reload_effect(instance.effect_index);
+			// Clear modified flag, so that errors are updated next frame (see 'update_and_render_effects')
+			instance.editor.clear_modified();
 
-			// Update errors in this editor instance
-			instance.editor.clear_errors();
-			open_code_editor(instance);
+			reload_effect(instance.effect_index);
 
 			// Reloading an effect file invalidates all textures, but the statistics window may already have drawn references to those, so need to reset it
 			ImGui::FindWindowByName("Statistics")->DrawList->CmdBuffer.clear();

@@ -439,7 +439,7 @@ bool reshade::runtime::load_effect(const std::filesystem::path &source_file, con
 		else if (_renderer_id < 0xc000)
 			shader_model = 50; // D3D11
 		else
-			shader_model = 60; // D3D12
+			shader_model = 51; // D3D12
 
 		std::unique_ptr<reshadefx::codegen> codegen;
 		if ((_renderer_id & 0xF0000) == 0)
@@ -515,6 +515,8 @@ bool reshade::runtime::load_effect(const std::filesystem::path &source_file, con
 			// Fill all specialization constants with values from the current preset
 			if (_performance_mode)
 			{
+				effect.preamble.clear();
+
 				for (reshadefx::uniform_info &constant : effect.module.spec_constants)
 				{
 					effect.preamble += "#define SPEC_CONSTANT_" + constant.name + ' ';
@@ -982,7 +984,7 @@ void reshade::runtime::update_and_render_effects()
 {
 	// Delay first load to the first render call to avoid loading while the application is still initializing
 	if (_framecount == 0 && !_no_reload_on_init)
-		load_effects();
+		reload_effects();
 
 	if (_reload_remaining_effects == 0)
 	{
