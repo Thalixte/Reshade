@@ -235,6 +235,59 @@ void reshade::d3d12::state_tracking::on_clear_depthstencil(D3D12_CLEAR_FLAGS cle
 	counters.current_stats = { 0, 0 };
 }
 
+std::vector<std::pair<ID3D12Resource*, reshade::d3d12::state_tracking::depthstencil_info>> reshade::d3d12::state_tracking_context::sorted_counters_per_used_depthstencil()
+{
+	struct pair_wrapper
+	{
+		int display_count;
+		ID3D12Resource* wrapped_dsv_texture;
+		depthstencil_info wrapped_depthstencil_info;
+		UINT64 depthstencil_width;
+		UINT64 depthstencil_height;
+	};
+
+	std::vector<pair_wrapper> sorted_counters_per_buffer;
+	sorted_counters_per_buffer.reserve(_counters_per_used_depth_texture.size());
+	
+	for (const auto& [dsv_texture, snapshot] : _counters_per_used_depth_texture)
+	{
+		auto dsv_texture_instance = dsv_texture.get();
+		const D3D12_RESOURCE_DESC desc = dsv_texture->GetDesc();
+		// get the display counter, if any of this texture.
+		auto entry = _shown_count_per_depthstencil_address.find(dsv_texture_instance);
+		if(entry == _shown_count_per_depthstencil_address.end())
+		{
+			sorted_counters_per_buffer.push_back({ 1, dsv_texture_instance, snapshot, desc.Width, desc.Height });
+		}
+		else
+		{
+			auto shown_count = entry->second;
+			sorted_counters_per_buffer.push_back({ ++shown_count, dsv_texture_instance, snapshot, desc.Width, desc.Height });
+		}
+	}
+	
+	std::sort(sorted_counters_per_buffer.begin(), sorted_counters_per_buffer.end(), [](const pair_wrapper& a, const pair_wrapper& b)
+	{
+		return (a.display_count > b.display_count) ||
+			(a.display_count == b.display_count &&
+				(a.depthstencil_width > b.depthstencil_width ||
+					(a.depthstencil_width == b.depthstencil_width && a.depthstencil_height > b.depthstencil_height))) ||
+			(a.depthstencil_width == b.depthstencil_width && a.depthstencil_height == b.depthstencil_height &&
+				a.wrapped_dsv_texture < b.wrapped_dsv_texture);
+	});
+	// build a new vector with the sorted elements to return
+	std::vector<std::pair<ID3D12Resource*, state_tracking::depthstencil_info>> to_return;
+	to_return.reserve(sorted_counters_per_buffer.size());
+	// store the state of the counters as we've collected them as the new state for the next frame.
+	_shown_count_per_depthstencil_address.clear();
+	for(const auto& [display_count, dsv_texture, snapshot, w, h] : sorted_counters_per_buffer)
+	{
+		to_return.push_back({ dsv_texture, snapshot });
+		_shown_count_per_depthstencil_address[dsv_texture] = display_count;
+	}
+	return to_return;
+}
+
 void reshade::d3d12::state_tracking_context::on_create_dsv(ID3D12Resource *dsv_texture, D3D12_CPU_DESCRIPTOR_HANDLE handle)
 {
 	const std::lock_guard<std::mutex> lock(s_global_mutex);
@@ -261,7 +314,7 @@ com_ptr<ID3D12Resource> reshade::d3d12::state_tracking_context::resource_from_ha
 	return nullptr;
 }
 
-bool reshade::d3d12::state_tracking_context::update_depthstencil_clear_texture(ID3D12CommandQueue *queue, D3D12_RESOURCE_DESC desc)
+bool reshade::d3d12::state_tracking_context::update_depthstencil_clear_texture(D3D12_RESOURCE_DESC desc)
 {
 	assert(_device != nullptr);
 
@@ -272,21 +325,7 @@ bool reshade::d3d12::state_tracking_context::update_depthstencil_clear_texture(I
 		if (desc.Width == existing_desc.Width && desc.Height == existing_desc.Height && desc.Format == existing_desc.Format)
 			return true; // Texture already matches dimensions, so can re-use
 
-		// Texture may still be in use on device, so wait for all operations to finish before destroying it
-		{	com_ptr<ID3D12Fence> fence;
-			if (FAILED(_device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence))))
-				return false;
-			const HANDLE fence_event = CreateEvent(nullptr, FALSE, FALSE, nullptr);
-			if (fence_event == nullptr)
-				return false;
-
-			assert(queue != nullptr);
-			queue->Signal(fence.get(), 1);
-			fence->SetEventOnCompletion(1, fence_event);
-			WaitForSingleObject(fence_event, INFINITE);
-			CloseHandle(fence_event);
-		}
-
+		// Runtime using this texture should have added its own reference, so can safely release this one here
 		_depthstencil_clear_texture.reset();
 	}
 
@@ -305,7 +344,7 @@ bool reshade::d3d12::state_tracking_context::update_depthstencil_clear_texture(I
 	return true;
 }
 
-com_ptr<ID3D12Resource> reshade::d3d12::state_tracking_context::update_depth_texture(ID3D12CommandQueue *queue, ID3D12GraphicsCommandList *list, UINT width, UINT height, ID3D12Resource *override)
+com_ptr<ID3D12Resource> reshade::d3d12::state_tracking_context::update_depth_texture(ID3D12GraphicsCommandList *list, UINT width, UINT height, ID3D12Resource *override)
 {
 	depthstencil_info best_snapshot;
 	com_ptr<ID3D12Resource> best_match = override;
@@ -354,7 +393,7 @@ com_ptr<ID3D12Resource> reshade::d3d12::state_tracking_context::update_depth_tex
 	const bool has_changed = depthstencil_clear_index.first != best_match;
 	depthstencil_clear_index.first = best_match.get();
 
-	if (best_match == nullptr || !update_depthstencil_clear_texture(queue, best_match->GetDesc()))
+	if (best_match == nullptr || !update_depthstencil_clear_texture(best_match->GetDesc()))
 		return nullptr;
 
 	if (preserve_depth_buffers)
