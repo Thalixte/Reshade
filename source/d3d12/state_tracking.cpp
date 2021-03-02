@@ -136,7 +136,7 @@ void reshade::d3d12::state_tracking::on_aliasing(const D3D12_RESOURCE_ALIASING_B
 		return;
 
 	auto &counters = _counters_per_used_depth_texture[_context->depthstencil_clear_index.first];
-	if (counters.current_stats.drawcalls == 0)
+	if (counters.current_stats.drawcalls == 0 || counters.copied_due_to_aliasing)
 		return;
 
 	const D3D12_RESOURCE_STATES state = counters.current_state != D3D12_RESOURCE_STATE_COMMON ? counters.current_state : D3D12_RESOURCE_STATE_DEPTH_WRITE;

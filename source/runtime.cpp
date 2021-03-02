@@ -268,11 +268,11 @@ void reshade::runtime::on_present()
 	static int cooldown = 0, traffic = 0;
 	if (cooldown-- > 0)
 	{
-		traffic += g_network_traffic > 0;
+		// traffic += g_network_traffic > 0;
 	}
 	else
 	{
-		_has_high_network_activity = traffic > 10;
+		// _has_high_network_activity = traffic > 10;
 		traffic = 0;
 		cooldown = 60;
 	}
@@ -462,7 +462,7 @@ bool reshade::runtime::load_effect(const std::filesystem::path &source_file, con
 
 		if (effect.compiled)
 		{
-			assert(effect.uniforms.empty());
+			effect.uniforms.clear();
 
 			// Create space for all variables (aligned to 16 bytes)
 			effect.uniform_data_storage.resize((effect.module.total_uniform_size + 15) & ~15);
